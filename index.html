@@ -1,0 +1,165 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>webcodecs testing</title>
+</head>
+<body>
+<video id="sender" autoplay playsinline muted></video>
+<video id="receiver" autoplay playsinline muted></video>
+<br>
+<button id="start">Start</button>
+<button id="getStats" disabled>getStats</button>
+<button id="end">Hang-up</button>
+<br>
+<span id="stats"></span>
+
+<!-- MAIN LOGIC & SENDER  -->
+<script>
+    const senderVideo = document.querySelector('video#sender');
+    const startBtn = document.querySelector('button#start');
+    const statsSpan = document.querySelector('span#stats');
+    const endBtn = document.querySelector('button#end');
+    const getStatsBtn = document.querySelector('button#getStats');
+
+    const pc = new RTCPeerConnection();
+    window.pc = pc;
+
+    async function sendVideo(stream) {
+
+        stream.getTracks().forEach(track => pc.addTrack(track, stream));
+
+        pc.onicecandidate = candidate => {
+            const toReceiverEvent = new CustomEvent('candidate', {detail: candidate});
+            document.dispatchEvent(toReceiverEvent);
+        };
+
+        document.addEventListener('candidate', async e => {
+            console.debug(e.detail);
+            if (e.detail.candidate)
+                await pc.addIceCandidate(e.detail.candidate);
+        });
+
+        const offer = await pc.createOffer();
+        await pc.setLocalDescription(offer);
+
+        const toReceiverEvent = new CustomEvent('offer', {detail: offer});
+        document.dispatchEvent(toReceiverEvent);
+
+        document.addEventListener('answer', async e => {
+            console.debug(e.detail);
+            await pc.setRemoteDescription(e.detail);
+        });
+    }
+
+    startBtn.onclick = async () => {
+        startBtn.disabled = true;
+        console.log("starting");
+
+        senderVideo.onplaying = () => {
+            console.log("video playing stream:", senderVideo.srcObject);
+        }
+        const stream = await navigator.mediaDevices.getUserMedia({video: true, audio: false});
+        senderVideo.srcObject = stream;
+        window.sendStream = stream;         // for debugging
+
+        // encoder setup
+        const init = {
+            output: ()=>{}, // todo:
+            error: (e) => {
+                console.log(e.message);
+            },
+        };
+
+        // ToDo: set the config to be the same as the input stream
+        const config = {
+            codec: "vp8",
+            width: 640,
+            height: 480,
+            bitrate: 2_000_000, // 2 Mbps
+            framerate: 30,
+        };
+
+        let encoder;
+        const { supported } = await VideoEncoder.isConfigSupported(config);
+        if (supported) {
+            encoder = new VideoEncoder(init);
+            encoder.configure(config);
+        } else {
+            // Try another config.
+        }
+
+
+        // Insertable Stream
+        const [track] = stream.getTracks();
+        const trackProcessor = new MediaStreamTrackProcessor(track);
+        const reader = trackProcessor.readable.getReader();
+
+        let frameCounter = 0;
+        while (true) {
+            const result = await reader.read();
+            if (result.done) break;
+
+            const frame = result.value;
+            if (encoder.encodeQueueSize > 2) {
+                // Too many frames in flight, encoder is overwhelmed
+                // let's drop this frame.
+                frame.close();
+            } else {
+                frameCounter++;
+                const keyFrame = frameCounter % 150 == 0;
+                encoder.encode(frame, { keyFrame });
+                frame.close();
+            }
+        }
+
+        await sendVideo(stream);
+    }
+
+    endBtn.onclick = ()=>{
+        pc.close();
+        senderVideo.srcObject.getTracks().forEach(track => track.stop());
+    }
+
+</script>
+<!-- RECEIVER  -->
+<script>
+    const receiverVideo = document.querySelector('video#receiver');
+
+    // Look for an offer event to start the peerConnection and answer
+    document.addEventListener('offer', async e => {
+        console.debug(e.detail);
+
+        const pc = new RTCPeerConnection();
+
+        pc.ontrack = e => {
+            console.debug(e);
+            const stream = e.streams[0];
+            receiverVideo.srcObject = stream;
+            window.receiveStream = stream;
+        };
+
+        pc.onicecandidate = candidate => {
+            const toReceiverEvent = new CustomEvent('candidate', {detail: candidate});
+            document.dispatchEvent(toReceiverEvent);
+        };
+
+        document.addEventListener('candidate', async e => {
+            console.debug(e.detail);
+            await pc.addIceCandidate(e.detail.candidate);
+        });
+
+
+        await pc.setRemoteDescription(e.detail);
+
+        window.receiverPc = pc;
+
+        const answer = await pc.createAnswer();
+        await pc.setLocalDescription(answer);
+
+        const toSenderEvent = new CustomEvent('answer', {detail: answer});
+        document.dispatchEvent(toSenderEvent);
+    });
+</script>
+</body>
+</html>
