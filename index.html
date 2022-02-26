@@ -6,7 +6,9 @@
 </head>
 <body>
 <video id="sender" autoplay playsinline muted></video>
-<video id="receiver" autoplay playsinline muted></video>
+<canvas></canvas>
+<br>
+<video id="receiver" autoplay playsinline muted hidden></video>
 <br>
 <button id="start">Start</button>
 <button id="getStats" disabled>getStats</button>
@@ -22,8 +24,16 @@
     const endBtn = document.querySelector('button#end');
     const getStatsBtn = document.querySelector('button#getStats');
 
+    const canvas = document.querySelector('canvas');
+    const ctx = canvas.getContext('2d');
+    canvas.width = 640;
+    canvas.height = 480;
+
     const pc = new RTCPeerConnection();
     window.pc = pc;
+
+    const payloadSize = 90;
+    const packetLossPct = .0005;
 
     async function sendVideo(stream) {
 
@@ -63,13 +73,14 @@
         senderVideo.srcObject = stream;
         window.sendStream = stream;         // for debugging
 
-        // encoder setup
-        const init = {
-            output: ()=>{}, // todo:
-            error: (e) => {
-                console.log(e.message);
-            },
-        };
+
+        // Insertable Stream
+        const [track] = stream.getTracks();
+        const trackProcessor = new MediaStreamTrackProcessor(track);
+
+        /*
+         * WebCodecs setup
+         */
 
         // ToDo: set the config to be the same as the input stream
         const config = {
@@ -80,43 +91,111 @@
             framerate: 30,
         };
 
-        let encoder;
-        const { supported } = await VideoEncoder.isConfigSupported(config);
+
+        // Decoder
+        const decoder = new VideoDecoder({
+            output: frame => {
+                ctx.drawImage(frame, 0, 0);
+                frame.close();
+            },
+            error: e => console.error(e.message)
+        });
+        decoder.configure(config);
+
+        // Encoder
+        let frameCounter = 0;
+
+        function handleEncoded(chunk, metadata) {
+            if (metadata && Object.keys(metadata).length > 0) {
+                console.log(metadata)
+            }
+
+            if (frameCounter % 30 === 0){
+                console.log(`frame chunk # ${frameCounter}`, chunk);
+            }
+
+            /*
+            if(chunk.type==='key'){
+                console.log(`keyframe - chunk # ${frameCounter}`, metadata, chunk);
+                // frameCounter = 1;
+            }
+             */
+
+            // To see if its working
+            if (frameCounter > 60){
+
+                let junk = new Uint8Array(chunk.byteLength);
+                chunk.copyTo(junk);
+
+                for(let n = 16; n <= junk.byteLength; n+=payloadSize){
+                    if(Math.random() <= packetLossPct)
+                        junk.fill(0, n, n+payloadSize);
+                }
+
+                const newChunk = new EncodedVideoChunk({
+                    timestamp: chunk.timestamp,
+                    type: chunk.type,
+                    data: junk
+                });
+                // console.log(newChunk);
+
+                decoder.decode(newChunk);
+            }
+            else
+                decoder.decode(chunk);
+
+
+        }
+
+        const {supported} = await VideoEncoder.isConfigSupported(config);
         if (supported) {
-            encoder = new VideoEncoder(init);
+            const encoder = new VideoEncoder({
+                output: handleEncoded,
+                error: e => console.error(e.message)
+            });
             encoder.configure(config);
+
+            const reader = trackProcessor.readable.getReader();
+            while (true) {
+                const result = await reader.read();
+                if (result.done) break;
+
+                const frame = result.value;
+                if (encoder.encodeQueueSize > 2) {
+                    // Too many frames in flight, encoder is overwhelmed
+                    // let's drop this frame.
+                    console.log("encoder overwhelmed, dropping frame", frame)
+                    frame.close();
+                } else {
+                    frameCounter++;
+                    const keyFrame = frameCounter % 150 === 0; // 150
+                    encoder.encode(frame, {keyFrame});
+                    frame.close();
+                }
+            }
         } else {
             // Try another config.
+            console.error("WebCodecs encoder config error");
         }
 
 
-        // Insertable Stream
-        const [track] = stream.getTracks();
-        const trackProcessor = new MediaStreamTrackProcessor(track);
-        const reader = trackProcessor.readable.getReader();
+    /*
+    // Insertable stream for reference
+    const generatedTrack = new MediaStreamTrackGenerator({kind: 'video'});
+    const moddedStream = new MediaStream([generatedTrack]);
 
-        let frameCounter = 0;
-        while (true) {
-            const result = await reader.read();
-            if (result.done) break;
+    trackProcessor.readable
+        .pipeThrough(new TransformStream({
+            transform: (frame, controller) => modStream(frame, controller, encoder)
+        }))
+        .pipeTo(generatedTrack.writable)
+        .catch(err => console.error("insertable stream error", err));
+     */
 
-            const frame = result.value;
-            if (encoder.encodeQueueSize > 2) {
-                // Too many frames in flight, encoder is overwhelmed
-                // let's drop this frame.
-                frame.close();
-            } else {
-                frameCounter++;
-                const keyFrame = frameCounter % 150 == 0;
-                encoder.encode(frame, { keyFrame });
-                frame.close();
-            }
-        }
-
-        await sendVideo(stream);
+    await sendVideo(stream);
     }
 
-    endBtn.onclick = ()=>{
+    endBtn.onclick = () => {
         pc.close();
         senderVideo.srcObject.getTracks().forEach(track => track.stop());
     }
