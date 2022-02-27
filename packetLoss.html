@@ -1,0 +1,252 @@
+<!DOCTYPE html>
+<html lang="en" xmlns="http://www.w3.org/1999/html">
+<head>
+    <meta charset="UTF-8">
+    <title>Packetloss Simulation</title>
+</head>
+<body>
+<video id="sender" autoplay playsinline muted></video>
+<video id="modded" autoplay playsinline></video>
+<p>Use headphones to avoid audio feedback</p>
+<button id="start">Start</button>
+<button id="stop">Stop</button>
+<br>
+<label for="keyframe_rate">KeyFrame Rate:</label>
+<input type="text" id="keyframe_rate" value="150">
+<button id="send_keyframe">Send KeyFrame</button>
+
+<h3>Simulate Packet Loss</h3>
+<button class="loss" value="0">No loss</button>
+<button class="loss" value="0.0001">0.01%</button>
+<button class="loss" value="0.001">0.1%</button>
+<button class="loss" value="0.01">1%</button>
+<button class="loss" value="10">10%</button>
+<br>
+<span id="message"></span>
+<script>
+    const senderVideo = document.querySelector('video#sender');
+    const moddedVideo = document.querySelector('video#modded');
+
+    const startBtn = document.querySelector('button#start');
+    const messageSpan = document.querySelector('span#message');
+    const endBtn = document.querySelector('button#stop');
+
+    const sendKeyFrameBtn = document.querySelector('button#send_keyframe');
+    const keyFrameRateInput = document.querySelector('input#keyframe_rate');
+
+    const VIDEO_WIDTH = 640;
+    const VIDEO_HEIGHT = 480;
+
+    const PAYLOAD_SIZE = 90;
+    let packetLossPct = 0;
+    let frameCounter = 0;
+    let manualSendKeyFrame = false;
+
+
+    // Tracks for modified audio and video
+    const videoGenerator = new MediaStreamTrackGenerator({kind: 'video'});
+    const videoWriter = videoGenerator.writable.getWriter();
+
+    const audioGenerator = new MediaStreamTrackGenerator({kind: 'audio'});
+    const audioWriter = audioGenerator.writable.getWriter();
+
+    const moddedStream = new MediaStream([videoGenerator, audioGenerator]);
+    moddedVideo.srcObject = moddedStream;
+
+    /*
+     * WebCodecs setup
+     */
+
+    const videoConfig = {
+        codec: "vp8",
+        width: VIDEO_WIDTH,
+        height: VIDEO_HEIGHT,
+        bitrate: 2_000_000, // 2 Mbps
+        framerate: 30,
+    };
+
+    const audioConfig = {
+        numberOfChannels: 1,
+        sampleRate: 48_000,
+        codec: 'opus'
+        // bitrate: 40_000,
+
+    }
+
+    // Video decoder
+    const videoDecoder = new VideoDecoder({
+        output: async frame => {
+            await videoWriter.write(frame);
+            frame.close();
+        },
+        error: e => console.error(e.message)
+    });
+    videoDecoder.configure(videoConfig);
+
+    // Audio decoder
+    const audioDecoder = new AudioDecoder({
+        output: async frame => {
+            if (frameCounter % 120 === 0)
+                console.log("audioFrame decoder", frame);
+            await audioWriter.write(frame);
+            frame.close();
+        },
+        error: e => console.error(e.message)
+    });
+    audioDecoder.configure(audioConfig);
+
+
+    // Encoder
+    function handleEncodedVideo(chunk, metadata) {
+        if (metadata && Object.keys(metadata).length > 0) {
+            console.log("video metadata", metadata)
+        }
+
+        let chunkWithLoss = new Uint8Array(chunk.byteLength);
+        chunk.copyTo(chunkWithLoss);
+
+        for (let n = 16; n <= chunkWithLoss.byteLength; n += PAYLOAD_SIZE) {
+            if (Math.random() <= packetLossPct)
+                chunkWithLoss.fill(0, n, n + PAYLOAD_SIZE);
+        }
+
+        const newChunk = new EncodedVideoChunk({
+            timestamp: chunk.timestamp,
+            type: chunk.type,
+            data: chunkWithLoss
+        });
+        videoDecoder.decode(newChunk);
+    }
+
+    function handleEncodedAudio(chunk, metadata) {
+        if (metadata.decoderConfig) {
+            console.log("audio metadata", metadata)
+            audioDecoder.configure(metadata.decoderConfig);
+        }
+
+        if (metadata && Object.keys(metadata).length > 0) {
+            console.log(metadata)
+        }
+
+        if (frameCounter % 120 === 0)
+            console.log("audioFrame encode", chunk);
+
+        // ToDo: packet loss simulation
+        audioDecoder.decode(chunk);
+    }
+
+    const videoEncoder = new VideoEncoder({
+        output: handleEncodedVideo,
+        error: e => console.error(e.message)
+    });
+
+    const audioEncoder = new AudioEncoder({
+        output: handleEncodedAudio,
+        error: e => console.error(e.message)
+    });
+
+
+    VideoEncoder.isConfigSupported(videoConfig).then(supported => {
+        if (supported) {
+            videoEncoder.configure(videoConfig);
+        } else {
+            console.error("WebCodecs video encoder config error");
+            messageSpan.textContent = "WebCodecs video encoder config error";
+            startBtn.disabled = true;
+        }
+    });
+
+    AudioEncoder.isConfigSupported(audioConfig).then(supported => {
+        if (supported) {
+            audioEncoder.configure(audioConfig);
+        } else {
+            console.error("WebCodecs audio encoder config error");
+            messageSpan.textContent = "WebCodecs audio encoder config error";
+            startBtn.disabled = true;
+        }
+    });
+
+
+    async function start() {
+        startBtn.disabled = true;
+        console.log("starting");
+
+        senderVideo.onplaying = () => {
+            console.log("video playing stream:", senderVideo.srcObject);
+        }
+        const stream = await navigator.mediaDevices.getUserMedia({video: true, audio: true});
+        senderVideo.srcObject = stream;
+        window.sendStream = stream;         // for debugging
+
+
+        // Insertable Stream
+        const [videoTrack] = stream.getVideoTracks();
+        const [audioTrack] = stream.getAudioTracks();
+
+        const videoTrackProcessor = new MediaStreamTrackProcessor(videoTrack);
+        const audioTrackProcessor = new MediaStreamTrackProcessor(audioTrack);
+
+        const videoReader = videoTrackProcessor.readable.getReader();
+        const audioReader = audioTrackProcessor.readable.getReader();
+
+        // ToDo: move to worker
+        while (true) {
+            const videoFrameReader = await videoReader.read();
+            if (videoFrameReader.done) break;
+
+            const audioFrameReader = await audioReader.read();
+            if (audioFrameReader.done) break;
+
+            const videoFrame = videoFrameReader.value;
+            const audioFrame = audioFrameReader.value;
+
+            if (videoEncoder.encodeQueueSize > 2) {
+                console.log("video encoder overwhelmed, dropping frame", videoFrame)
+                videoFrame.close();
+            } else if (audioEncoder.encodeQueueSize > 2) {
+                console.log("audio encoder overwhelmed, dropping frame", videoFrame)
+                audioFrame.close();
+            } else {
+                frameCounter++;
+
+                const keyFrame = frameCounter % keyFrameRateInput.value === 0 || manualSendKeyFrame;
+                await videoEncoder.encode(videoFrame, {keyFrame});
+                videoFrame.close();
+                if (manualSendKeyFrame) {
+                    console.log(`set ${frameCounter} to keyframe`);
+                    manualSendKeyFrame = false;
+                    manualSendKeyFrame.disabled = false;
+                }
+
+                await audioEncoder.encode(audioFrame);
+                audioFrame.close();
+
+            }
+        }
+
+        videoDecoder.flush();
+        videoEncoder.close();
+
+        // audioDecoder.flush();
+        audioEncoder.close();
+    }
+
+    // GUI controls
+    startBtn.onclick = start;
+
+    endBtn.onclick = () => senderVideo.srcObject.getTracks().forEach(track => track.stop());
+
+    document.querySelectorAll('button.loss').forEach(btn => btn.onclick = () => {
+        packetLossPct = btn.value
+        document.querySelectorAll('button.loss').forEach(btn => btn.style.color = "black");
+        btn.style.color = "red";
+    });
+
+    sendKeyFrameBtn.onclick = () => {
+        manualSendKeyFrame.disabled = true;
+        manualSendKeyFrame = true;
+    }
+
+</script>
+</body>
+</html>
