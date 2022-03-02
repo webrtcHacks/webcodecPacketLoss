@@ -190,15 +190,18 @@
         const audioReader = audioTrackProcessor.readable.getReader();
 
         // ToDo: move to worker
-        while (true) {
-            const videoFrameReader = await videoReader.read();
-            if (videoFrameReader.done) break;
+        // Note: combining these doesn't work
+        // ToDo: try these in separate functions
+        async function encoder() {
 
-            const audioFrameReader = await audioReader.read();
-            if (audioFrameReader.done) break;
+            const [videoFrameReader, audioFrameReader] = await Promise.all([videoReader.read(),audioReader.read()]);
+
+            if (videoFrameReader.done || audioFrameReader.done) return;
 
             const videoFrame = videoFrameReader.value;
             const audioFrame = audioFrameReader.value;
+
+            frameCounter++;
 
             if (videoEncoder.encodeQueueSize > 2) {
                 console.log("video encoder overwhelmed, dropping frame", videoFrame)
@@ -207,22 +210,28 @@
                 console.log("audio encoder overwhelmed, dropping frame", videoFrame)
                 audioFrame.close();
             } else {
-                frameCounter++;
 
                 const keyFrame = frameCounter % keyFrameRateInput.value === 0 || manualSendKeyFrame;
-                await videoEncoder.encode(videoFrame, {keyFrame});
-                videoFrame.close();
+
                 if (manualSendKeyFrame) {
                     console.log(`set ${frameCounter} to keyframe`);
                     manualSendKeyFrame = false;
                     manualSendKeyFrame.disabled = false;
                 }
 
-                await audioEncoder.encode(audioFrame);
+                await Promise.all([
+                    audioEncoder.encode(audioFrame)
+                    videoEncoder.encode(videoFrame, {keyFrame}),
+                ]);
+
+                videoFrame.close();
                 audioFrame.close();
 
             }
+
+            await encoder();
         }
+        await encoder();
 
         videoDecoder.flush();
         videoEncoder.close();
