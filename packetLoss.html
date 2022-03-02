@@ -10,17 +10,47 @@
 <p>Use headphones to avoid audio feedback</p>
 <button id="start">Start</button>
 <button id="stop">Stop</button>
-<br>
-<label for="keyframe_rate">KeyFrame Rate:</label>
-<input type="text" id="keyframe_rate" value="150">
+<h3>Control Encoding</h3>
 <button id="send_keyframe">Send KeyFrame</button>
+<form id="encoding_form" onsubmit="return false">
+    <label for="video_frame_rate">Video frame rate:</label>
+    <input type="number" id="video_frame_rate" value="30">
+
+    <label for="video_bitrate">Video bitrate:</label>
+    <input type="text" id="video_bitrate" value="2,000,000" pattern="([0-9]|,| |_|\.)+">
+
+    <label for="keyframe_rate">KeyFrame Rate:</label>
+    <input type="number" id="keyframe_rate" value="150">
+
+    <label for="audio_sample_rate">Audio sample rate:</label>
+    <!-- OPUS is only working with 48khz-->
+    <input type="text" id="audio_sample_rate" value="48,000" pattern="([0-9]|,| |_|\.)+" disabled>
+
+    <label for="audio_bitrate">Audio bitrate:</label>
+    <input type="text" id="audio_bitrate" value="40,000" pattern="([0-9]|,| |_|\.)+" min="6000">
+
+    <button id="apply_config">Submit</button>
+
+</form>
 
 <h3>Simulate Packet Loss</h3>
-<button class="loss" value="0">No loss</button>
-<button class="loss" value="0.0001">0.01%</button>
-<button class="loss" value="0.001">0.1%</button>
-<button class="loss" value="0.01">1%</button>
-<button class="loss" value="10">10%</button>
+<p>
+    video:
+    <button class="video_loss" value="0">No loss</button>
+    <button class="video_loss" value="0.0001">0.01%</button>
+    <button class="video_loss" value="0.001">0.1%</button>
+    <button class="video_loss" value="0.01">1%</button>
+    <button class="video_loss" value="10">10%</button>
+</p>
+<p>
+    audio:
+    <button class="audio_loss" value="0">No loss</button>
+    <button class="audio_loss" value="0.01">1%</button>
+    <button class="audio_loss" value="0.05">5%</button>
+    <button class="audio_loss" value="0.10">10%</button>
+    <button class="audio_loss" value="0.20">20%</button>
+    <button class="audio_loss" value="0.40">40%</button>
+</p>
 <br>
 <span id="message"></span>
 <script>
@@ -32,17 +62,21 @@
     const endBtn = document.querySelector('button#stop');
 
     const sendKeyFrameBtn = document.querySelector('button#send_keyframe');
+
+    const videoFrameRateInput = document.querySelector('input#video_frame_rate');
+    const videoBitrateInput = document.querySelector('input#video_bitrate');
     const keyFrameRateInput = document.querySelector('input#keyframe_rate');
+    const audioSampleRateInput = document.querySelector('input#audio_sample_rate');
+    const audioBitrateInput = document.querySelector('input#audio_bitrate');
+    const encoderConfigBtn = document.querySelector('button#apply_config');
 
     const VIDEO_WIDTH = 640;
     const VIDEO_HEIGHT = 480;
 
-    const PAYLOAD_SIZE = 90;
-    let packetLossPct = 0;
-    let videoFrameCounter = 0;
-    let audioFrameCounter = 0;
+    const PAYLOAD_SIZE = 200; // 90
+    let videoPacketLossPct = 0, audioPacketLossPct = 0;
+    let videoFrameCounter = 0, audioFrameCounter = 0;
     let manualSendKeyFrame = false;
-
 
     // Tracks for modified audio and video
     const videoGenerator = new MediaStreamTrackGenerator({kind: 'video'});
@@ -54,25 +88,60 @@
     const moddedStream = new MediaStream([videoGenerator, audioGenerator]);
     moddedVideo.srcObject = moddedStream;
 
+    // allow spacers for easier entry of large numbers
+    const cleanInput = (input)=>parseInt(input.replaceAll(/[,_ .]/ig, ""));
+
+
+    /*
+     * Packetloss function
+     */
+
+    // ToDo: audio packetloss doesn't sound realistic
+    function addPacketLoss(chunk, type) {
+        let chunkWithLoss = new Uint8Array(chunk.byteLength);
+        chunk.copyTo(chunkWithLoss);
+
+        const packetLoss = type === 'video' ? videoPacketLossPct : audioPacketLossPct;
+        for (let n = 16; n <= chunkWithLoss.byteLength; n += PAYLOAD_SIZE) {
+            if (Math.random() <= packetLoss)
+                chunkWithLoss.fill(0, n, n + PAYLOAD_SIZE);
+        }
+        const chunkObj = {
+            timestamp: chunk.timestamp,
+            type: chunk.type,
+            data: chunkWithLoss
+        };
+
+        if (type === 'video')
+            return new EncodedVideoChunk(chunkObj);
+        else if (type === 'audio')
+            return new EncodedAudioChunk(chunkObj);
+    }
+
     /*
      * WebCodecs setup
      */
 
-    const videoConfig = {
-        codec: "vp8",
-        width: VIDEO_WIDTH,
-        height: VIDEO_HEIGHT,
-        bitrate: 2_000_000, // 2 Mbps
-        framerate: 30,
-    };
+    let videoConfig, audioConfig;
 
-    const audioConfig = {
-        numberOfChannels: 1,
-        sampleRate: 48_000,
-        codec: 'opus'
-        // bitrate: 40_000,
+    function setCodecConfig(){
+        videoConfig = {
+            codec: "vp8",
+            width: VIDEO_WIDTH,
+            height: VIDEO_HEIGHT,
+            bitrate: cleanInput(videoBitrateInput.value),
+            framerate: cleanInput(videoFrameRateInput.value),
+        };
 
+        audioConfig = {
+            numberOfChannels: 1,
+            sampleRate: cleanInput(audioSampleRateInput.value),
+            codec: 'opus',
+            bitrate: cleanInput(audioBitrateInput.value)
+        }
     }
+    setCodecConfig();
+
 
     // Video decoder
     const videoDecoder = new VideoDecoder({
@@ -99,41 +168,25 @@
 
     // Encoder
     function handleEncodedVideo(chunk, metadata) {
-        if (metadata && Object.keys(metadata).length > 0) {
+        if (metadata.decoderConfig) {
             console.log("video metadata", metadata)
         }
-
-        let chunkWithLoss = new Uint8Array(chunk.byteLength);
-        chunk.copyTo(chunkWithLoss);
-
-        for (let n = 16; n <= chunkWithLoss.byteLength; n += PAYLOAD_SIZE) {
-            if (Math.random() <= packetLossPct)
-                chunkWithLoss.fill(0, n, n + PAYLOAD_SIZE);
-        }
-
-        const newChunk = new EncodedVideoChunk({
-            timestamp: chunk.timestamp,
-            type: chunk.type,
-            data: chunkWithLoss
-        });
-        videoDecoder.decode(newChunk);
+        const modifiedChunk = addPacketLoss(chunk, 'video');
+        videoDecoder.decode(modifiedChunk);
     }
 
     function handleEncodedAudio(chunk, metadata) {
         if (metadata.decoderConfig) {
             console.log("audio metadata", metadata)
-            audioDecoder.configure(metadata.decoderConfig);
         }
 
-        if (metadata && Object.keys(metadata).length > 0) {
-            console.log(metadata)
-        }
-
+        /*
         if (audioFrameCounter % 120 === 0)
             console.log("audioFrame encode", chunk);
+         */
 
-        // ToDo: packet loss simulation
-        audioDecoder.decode(chunk);
+        const modifiedChunk = addPacketLoss(chunk, 'audio');
+        audioDecoder.decode(modifiedChunk);
     }
 
     const videoEncoder = new VideoEncoder({
@@ -250,10 +303,33 @@
 
     endBtn.onclick = () => senderVideo.srcObject.getTracks().forEach(track => track.stop());
 
-    document.querySelectorAll('button.loss').forEach(btn => btn.onclick = () => {
-        packetLossPct = btn.value
-        document.querySelectorAll('button.loss').forEach(btn => btn.style.color = "black");
+    // modify encoding parameters on the fly
+    encoderConfigBtn.onclick = () => {
+        setCodecConfig();
+        videoEncoder.configure(videoConfig);
+        videoEncoder.flush();
+        videoDecoder.configure(videoConfig);
+        manualSendKeyFrame = true;
+        videoDecoder.flush();
+        audioEncoder.configure(audioConfig);
+        audioEncoder.flush();
+        audioDecoder.configure(audioConfig);
+        audioDecoder.flush();
+    }
+
+    document.querySelectorAll('button.video_loss').forEach(btn => btn.onclick = () => {
+        videoPacketLossPct = btn.value
+        document.querySelectorAll('button.video_loss').forEach(btn => btn.style.color = "black");
         btn.style.color = "red";
+        console.log(`video packet loss set to ${videoPacketLossPct}`);
+    });
+
+    document.querySelectorAll('button.audio_loss').forEach(btn => btn.onclick = () => {
+        audioPacketLossPct = btn.value
+        document.querySelectorAll('button.audio_loss').forEach(btn => btn.style.color = "black");
+        btn.style.color = "red";
+        console.log(`audio packet loss set to ${audioPacketLossPct}`);
+
     });
 
     sendKeyFrameBtn.onclick = () => {
