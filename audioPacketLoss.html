@@ -1,0 +1,153 @@
+<!DOCTYPE html>
+<html lang="en" xmlns="http://www.w3.org/1999/html">
+<head>
+    <meta charset="UTF-8">
+    <title>Packetloss Simulation</title>
+</head>
+<body>
+<audio id="sender" autoplay playsinline muted></audio>
+<audio id="modded" autoplay playsinline></audio>
+<p>Use headphones to avoid audio feedback</p>
+<button id="start">Start</button>
+<button id="stop">Stop</button>
+<h3>Simulate Packet Loss</h3>
+<button class="loss" value="0">No loss</button>
+<button class="loss" value="0.0001">0.01%</button>
+<button class="loss" value="0.001">0.1%</button>
+<button class="loss" value="0.01">1%</button>
+<button class="loss" value="10">10%</button>
+<br>
+<span id="message"></span>
+<script>
+    const senderAudio = document.querySelector('audio#sender');
+    const moddedAudio = document.querySelector('audio#modded');
+
+    const startBtn = document.querySelector('button#start');
+    const messageSpan = document.querySelector('span#message');
+    const endBtn = document.querySelector('button#stop');
+
+    const PAYLOAD_SIZE = 90;
+    let packetLossPct = 0;
+    let frameCounter = 0;
+
+
+    // Tracks for modified audio and video
+
+    const audioGenerator = new MediaStreamTrackGenerator({kind: 'audio'});
+    const audioWriter = audioGenerator.writable.getWriter();
+
+    const moddedStream = new MediaStream([audioGenerator]);
+    moddedAudio.srcObject = moddedStream;
+
+    /*
+     * WebCodecs setup
+     */
+
+    const audioConfig = {
+        numberOfChannels: 1,
+        sampleRate: 48_000,
+        codec: 'opus'
+        // bitrate: 40_000,
+
+    }
+
+    // Audio decoder
+    const audioDecoder = new AudioDecoder({
+        output: async frame => {
+            if (frameCounter % 120 === 0)
+                console.log("audioFrame decoder", frame);
+            await audioWriter.write(frame);
+            frame.close();
+        },
+        error: e => console.error(e.message)
+    });
+    audioDecoder.configure(audioConfig);
+
+    function handleEncodedAudio(chunk, metadata) {
+        if (metadata.decoderConfig) {
+            console.log("Encoder audio metadata", metadata)
+            audioDecoder.configure(metadata.decoderConfig);
+        }
+
+        if (metadata && Object.keys(metadata).length > 0) {
+            console.log(metadata)
+        }
+
+        if (frameCounter % 120 === 0)
+            console.log("audioFrame encode", chunk);
+
+        // ToDo: packet loss simulation
+        audioDecoder.decode(chunk);
+    }
+
+    const audioEncoder = new AudioEncoder({
+        output: handleEncodedAudio,
+        error: e => console.error(e.message)
+    });
+
+    AudioEncoder.isConfigSupported(audioConfig).then(supported => {
+        if (supported) {
+            audioEncoder.configure(audioConfig);
+        } else {
+            console.error("WebCodecs audio encoder config error");
+            messageSpan.textContent = "WebCodecs audio encoder config error";
+            startBtn.disabled = true;
+        }
+    });
+
+
+    async function start() {
+        startBtn.disabled = true;
+        console.log("starting");
+
+        senderAudio.onplaying = () => {
+            console.log("Audio playing stream:", senderAudio.srcObject);
+        }
+        const stream = await navigator.mediaDevices.getUserMedia({video: false, audio: true});
+        senderAudio.srcObject = stream;
+        window.sendStream = stream;         // for debugging
+
+
+        // Insertable Stream
+        const [audioTrack] = stream.getAudioTracks();
+
+        const audioTrackProcessor = new MediaStreamTrackProcessor(audioTrack);
+
+        const audioReader = audioTrackProcessor.readable.getReader();
+
+        // ToDo: move to worker
+        while (true) {
+
+            const audioFrameReader = await audioReader.read();
+            if (audioFrameReader.done) break;
+
+            const audioFrame = audioFrameReader.value;
+
+             if (audioEncoder.encodeQueueSize > 2) {
+                console.log("audio encoder overwhelmed, dropping frame", videoFrame)
+                audioFrame.close();
+            } else {
+                frameCounter++;
+                await audioEncoder.encode(audioFrame);
+                audioFrame.close();
+
+            }
+        }
+        // audioDecoder.flush();
+        audioEncoder.close();
+    }
+
+    // GUI controls
+    startBtn.onclick = start;
+
+    endBtn.onclick = () => senderAudio.srcObject.getTracks().forEach(track => track.stop());
+
+    document.querySelectorAll('button.loss').forEach(btn => btn.onclick = () => {
+        packetLossPct = btn.value
+        document.querySelectorAll('button.loss').forEach(btn => btn.style.color = "black");
+        btn.style.color = "red";
+    });
+
+</script>
+</body>
+</html>
