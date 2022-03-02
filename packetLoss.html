@@ -39,7 +39,8 @@
 
     const PAYLOAD_SIZE = 90;
     let packetLossPct = 0;
-    let frameCounter = 0;
+    let videoFrameCounter = 0;
+    let audioFrameCounter = 0;
     let manualSendKeyFrame = false;
 
 
@@ -86,7 +87,7 @@
     // Audio decoder
     const audioDecoder = new AudioDecoder({
         output: async frame => {
-            if (frameCounter % 120 === 0)
+            if (videoFrameCounter % 120 === 0)
                 console.log("audioFrame decoder", frame);
             await audioWriter.write(frame);
             frame.close();
@@ -128,7 +129,7 @@
             console.log(metadata)
         }
 
-        if (frameCounter % 120 === 0)
+        if (audioFrameCounter % 120 === 0)
             console.log("audioFrame encode", chunk);
 
         // ToDo: packet loss simulation
@@ -178,7 +179,6 @@
         senderVideo.srcObject = stream;
         window.sendStream = stream;         // for debugging
 
-
         // Insertable Stream
         const [videoTrack] = stream.getVideoTracks();
         const [audioTrack] = stream.getAudioTracks();
@@ -191,52 +191,57 @@
 
         // ToDo: move to worker
         // Note: combining these doesn't work
-        // ToDo: try these in separate functions
-        async function encoder() {
-
-            const [videoFrameReader, audioFrameReader] = await Promise.all([videoReader.read(),audioReader.read()]);
-
-            if (videoFrameReader.done || audioFrameReader.done) return;
+        async function videoLoop() {
+            const videoFrameReader = await videoReader.read();
+            if (videoFrameReader.done)
+                return;
 
             const videoFrame = videoFrameReader.value;
-            const audioFrame = audioFrameReader.value;
-
-            frameCounter++;
 
             if (videoEncoder.encodeQueueSize > 2) {
                 console.log("video encoder overwhelmed, dropping frame", videoFrame)
                 videoFrame.close();
-            } else if (audioEncoder.encodeQueueSize > 2) {
-                console.log("audio encoder overwhelmed, dropping frame", videoFrame)
-                audioFrame.close();
             } else {
 
-                const keyFrame = frameCounter % keyFrameRateInput.value === 0 || manualSendKeyFrame;
+                const keyFrame = videoFrameCounter % keyFrameRateInput.value === 0 || manualSendKeyFrame;
 
                 if (manualSendKeyFrame) {
-                    console.log(`set ${frameCounter} to keyframe`);
+                    console.log(`set ${videoFrameCounter} to keyframe`);
                     manualSendKeyFrame = false;
                     manualSendKeyFrame.disabled = false;
                 }
 
-                await Promise.all([
-                    audioEncoder.encode(audioFrame)
-                    videoEncoder.encode(videoFrame, {keyFrame}),
-                ]);
-
+                await videoEncoder.encode(videoFrame, {keyFrame});
+                videoFrameCounter++;
                 videoFrame.close();
-                audioFrame.close();
+            }
+            await videoLoop();
+        }
 
+        async function audioLoop() {
+
+            const audioFrameReader = await audioReader.read();
+
+            if (audioFrameReader.done) return;
+            const audioFrame = audioFrameReader.value;
+
+            if (audioEncoder.encodeQueueSize > 2) {
+                console.log("audio encoder overwhelmed, dropping frame", videoFrame)
+                audioFrame.close();
+            } else {
+                await audioEncoder.encode(audioFrame);
+                audioFrameCounter++;
+                audioFrame.close();
             }
 
-            await encoder();
+            await audioLoop();
         }
-        await encoder();
+
+        await Promise.all([videoLoop(), audioLoop()]);
+        console.log("exiting media loops")
 
         videoDecoder.flush();
         videoEncoder.close();
-
-        // audioDecoder.flush();
         audioEncoder.close();
     }
 
