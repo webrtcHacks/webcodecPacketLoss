@@ -65,7 +65,7 @@
 
     function handleEncodedAudio(chunk, metadata) {
         if (metadata.decoderConfig) {
-            console.log("Encoder audio metadata", metadata)
+            console.log("Encoder audio metadata", metadata);
             audioDecoder.configure(metadata.decoderConfig);
         }
 

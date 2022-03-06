@@ -32,7 +32,10 @@
     <button id="apply_config">Submit</button>
 
 </form>
-
+<h3>Simulate delay</h3>
+<label for="delay_range">Add a delay in ms (up to 5000):</label>
+<input type="range" min="0" max="5000" value="0" id="delay_range" > <!--oninput="this.nextElementSibling.value = `${this.value} ms`"-->
+<span><output id="delay">0</output> ms</span>
 <h3>Simulate Packet Loss</h3>
 <p>
     video:
@@ -63,6 +66,10 @@
 
     const sendKeyFrameBtn = document.querySelector('button#send_keyframe');
 
+    const delayRange = document.querySelector('input#delay_range');
+    const delayInput = document.querySelector('output#delay');
+    let delay = 0;
+
     const videoFrameRateInput = document.querySelector('input#video_frame_rate');
     const videoBitrateInput = document.querySelector('input#video_bitrate');
     const keyFrameRateInput = document.querySelector('input#keyframe_rate');
@@ -88,8 +95,18 @@
     const moddedStream = new MediaStream([videoGenerator, audioGenerator]);
     moddedVideo.srcObject = moddedStream;
 
+
+    let audioDelayTimeout, videoDelaytimeout;
+
+    /*
+     * Helper functions
+     */
+
+    // ToDo: need to make this cancellable
+    const sleep = ms => new Promise((resolve) => setTimeout(resolve, ms));
+
     // allow spacers for easier entry of large numbers
-    const cleanInput = (input)=>parseInt(input.replaceAll(/[,_ .]/ig, ""));
+    const cleanInput =  input => parseInt(input.replaceAll(/[,_ .]/ig, ""));
 
 
     /*
@@ -156,8 +173,8 @@
     // Audio decoder
     const audioDecoder = new AudioDecoder({
         output: async frame => {
-            if (videoFrameCounter % 120 === 0)
-                console.log("audioFrame decoder", frame);
+            /*if (videoFrameCounter % 120 === 0)
+                console.log("audioFrame decoder", frame);*/
             await audioWriter.write(frame);
             frame.close();
         },
@@ -167,25 +184,22 @@
 
 
     // Encoder
-    function handleEncodedVideo(chunk, metadata) {
+    async function handleEncodedVideo(chunk, metadata) {
         if (metadata.decoderConfig) {
             console.log("video metadata", metadata)
         }
         const modifiedChunk = addPacketLoss(chunk, 'video');
+        await sleep(delayInput.value.match(/[0-9]+/g)[0]);
         videoDecoder.decode(modifiedChunk);
     }
 
-    function handleEncodedAudio(chunk, metadata) {
+    async function handleEncodedAudio(chunk, metadata) {
         if (metadata.decoderConfig) {
             console.log("audio metadata", metadata)
         }
 
-        /*
-        if (audioFrameCounter % 120 === 0)
-            console.log("audioFrame encode", chunk);
-         */
-
         const modifiedChunk = addPacketLoss(chunk, 'audio');
+        await sleep(delayInput.value.match(/[0-9]+/g)[0]);
         audioDecoder.decode(modifiedChunk);
     }
 
@@ -268,6 +282,8 @@
                 videoFrameCounter++;
                 videoFrame.close();
             }
+
+            await sleep(delayInput.value.match(/[0-9]+/g)[0])
             await videoLoop();
         }
 
@@ -331,6 +347,32 @@
         console.log(`audio packet loss set to ${audioPacketLossPct}`);
 
     });
+
+    delayRange.oninput = (e)=>{
+        delayInput.value = e.target.value;
+
+        // Audio delay doesn't ever reset when the delay is lowered
+        // ToDo: try to cancel the timeout?
+
+        // This didn't do anything
+        // Go back to <input type="range" min="0" max="5000" value="0" id="delay_range" oninput="this.nextElementSibling.value = `${this.value} ms`">??
+
+        /*
+        if(this.value < delay){
+            setTimeout(()=>{
+                delay = e.target.value;
+            }, 1000);
+            videoEncoder.flush();
+            manualSendKeyFrame = true;
+            audioEncoder.flush();
+
+            videoDecoder.flush();
+            audioDecoder.flush();
+        }
+        else
+         */
+            delay = e.target.value;
+    }
 
     sendKeyFrameBtn.onclick = () => {
         manualSendKeyFrame.disabled = true;
