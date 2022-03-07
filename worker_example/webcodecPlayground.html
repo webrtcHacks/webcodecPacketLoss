@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html lang="en" xmlns="http://www.w3.org/1999/html">
+<head>
+    <meta charset="UTF-8">
+    <title>Packetloss Simulation</title>
+    <style>
+        video.self {
+            transform: scaleX(-1);
+        }
+    </style>
+</head>
+<body>
+<video id="sender" autoplay playsinline muted class="self"></video>
+<video id="modded" autoplay playsinline></video>
+<p>Use headphones to avoid audio feedback</p>
+<button id="start">Start</button>
+<button id="stop">Stop</button>
+<span id="message"></span>
+<script>
+    const senderVideo = document.querySelector('video#sender');
+    const moddedVideo = document.querySelector('video#modded');
+
+    const startBtn = document.querySelector('button#start');
+    const messageSpan = document.querySelector('span#message');
+    const endBtn = document.querySelector('button#stop');
+
+
+    // Tracks for modified audio and video
+    const videoGenerator = new MediaStreamTrackGenerator({kind: 'video'});
+    const videoWriter = videoGenerator.writable;
+
+
+    const audioGenerator = new MediaStreamTrackGenerator({kind: 'audio'});
+    const audioWriter = audioGenerator.writable;
+
+    const moddedStream = new MediaStream([videoGenerator, audioGenerator]);
+    moddedVideo.srcObject = moddedStream;
+
+
+
+    const worker = new Worker("./worker.js", {name: 'Stream worker'});
+
+    async function start() {
+        startBtn.disabled = true;
+        console.log("starting");
+
+        senderVideo.onplaying = () => {
+            console.log("video playing stream:", senderVideo.srcObject);
+        }
+        const stream = await navigator.mediaDevices.getUserMedia({video: true, audio: true});
+        senderVideo.srcObject = stream;
+        window.sendStream = stream;         // for debugging
+
+        // Insertable Stream
+        const [videoTrack] = stream.getVideoTracks();
+        const [audioTrack] = stream.getAudioTracks();
+
+        const videoTrackProcessor = new MediaStreamTrackProcessor(videoTrack);
+        const audioTrackProcessor = new MediaStreamTrackProcessor(audioTrack);
+
+        const videoReader = videoTrackProcessor.readable;
+        const audioReader = audioTrackProcessor.readable;
+
+        // videoOnly
+        worker.postMessage({
+            operation: 'video',
+            videoReader,
+            videoWriter,
+        }, [videoReader, videoWriter]);
+
+
+        // Audio
+        worker.postMessage({
+            operation: 'audio',
+            audioReader,
+            audioWriter,
+        }, [audioReader, audioWriter]);
+
+
+        worker.addEventListener('message', e=> console.log(e), false);
+
+    }
+
+    // GUI controls
+    startBtn.onclick = start;
+
+    endBtn.onclick = () => {
+        worker.postMessage({operation: 'stop'});
+        senderVideo.srcObject.getTracks().forEach(track => track.stop());
+
+    }
+
+
+</script>
+</body>
+</html>

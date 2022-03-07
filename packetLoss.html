@@ -295,7 +295,7 @@
             const audioFrame = audioFrameReader.value;
 
             if (audioEncoder.encodeQueueSize > 2) {
-                console.log("audio encoder overwhelmed, dropping frame", videoFrame)
+                console.log("audio encoder overwhelmed, dropping frame", audioFrame)
                 audioFrame.close();
             } else {
                 await audioEncoder.encode(audioFrame);
