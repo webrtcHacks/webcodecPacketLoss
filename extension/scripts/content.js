@@ -22,60 +22,33 @@ debug("inject injected");
  * Communicate with the popup
  */
 
-/*
-const port = chrome.runtime.connect({name: "vch"});
-port.postMessage({state});
-port.onMessage.addListener(msg=> {
-debug(`incoming message:`, msg);
+let popupPort;
+
+chrome.runtime.onConnect.addListener((port)=> {
+    if(port.name !== "vch")
+        return;
+    popupPort = port;
+    popupOpen = true;
+
+    port.onMessage.addListener((msg)=> {
+        debug(`incoming message from popup:`, msg);
+
+        // message handler
+        if(msg.command === 'start'){
+            debug("this is where I should start")
+            sendToInject('start');
+        }
+    });
+
+    port.onDisconnect.addListener((msg)=>{
+        const ignoreError = chrome.runtime.lastError;
+        debug("popup disconnected", msg);
+        popupOpen = false;
+    })
+
+    port.postMessage({state});
+
 });
- */
-
-async function sendMessage(to = 'popup', from = 'content', message, data = {}) {
-
-    try {
-        // ToDo: response callback
-        const messageToSend = {
-            from: from,
-            to: to,
-            message: message,
-            data: data
-        };
-
-        // ToDo: this is expecting a response
-        await chrome.runtime.sendMessage(messageToSend);
-
-        // debug(`sent "${message}" from "tab" to ${to} with data ${JSON.stringify(data)}`);
-    } catch (err) {
-        console.error(err);
-        debug("ERROR", err);
-    }
-}
-
-
-// Main message handler
-chrome.runtime.onMessage.addListener(
-    async (request, sender, sendResponse) => {
-        const {to, from, message, data} = request;
-        debug(`receiving "${message}" from ${from} to ${to}`, request);
-
-        // This app only needs popup for now
-        if(from !== 'popup')
-            return
-
-        if(message === 'open'){
-            debug(`sending state: ${state}`);
-            popupOpen = true;
-            sendResponse({state});
-        }
-
-        else {
-            sendToInject(request);
-            if(sendResponse)
-                sendResponse({data: "foo"});
-        }
-    }
-);
-
 
 /*
  * Communicate with the injected content
@@ -107,9 +80,14 @@ document.addEventListener('vch', async e => {
     if(message === 'state'){
         state = data.state;
         debug(`state from inject: ${state}`);
+        if(popupOpen)
+            popupPort.postMessage({state});
     }
-
-
 
 });
 
+onbeforeunload = ()=>{
+    state = "closing";
+    if(popupOpen)
+        popupPort.postMessage({state});
+}
