@@ -1,5 +1,5 @@
 const statusSpan = document.querySelector('span#gumStatus');
-const trainBtn = document.querySelector('button#train');
+const btn = document.querySelector('button');
 
 function log(...messages) {
     if (messages.length > 1 || typeof messages[0] === 'object')
@@ -48,39 +48,39 @@ function sendMessage(to, message, data, responseHandler = null) {
     }
 }
 
+// ToDo: this doesn't do anything
 chrome.runtime.onMessage.addListener(
     (request, sender, sendResponse) => {
-        log(request);
+        // log(request);
+        log(`DEBUG: from ${sender.tab ? sender.tab.id : "unknown"}`, request, sender);
+
         const {to, from, message, data} = request;
 
         if(to === 'popup' || to === 'all'){
             log(`message from ${from}: ${message}`);
         }
         else {
-            /*
+
             if(sender.tab)
                 log(`unrecognized format from tab ${sender.tab.id} on ${sender.tab ? sender.tab.url : "undefined url"}`, request);
             else
                 log(`unrecognized format : `, sender, request);
             return
-             */
+
         }
 
         // message handlers
         if(message === "gum_stream_start") {
             statusSpan.textContent = "active";
-            trainBtn.disabled = false;
+            btn.disabled = false;
         }
         if(message === "gum_stream_stop") {
             statusSpan.textContent = "stopped";
-            trainBtn.disabled = true;
+            btn.disabled = true;
         }
         if(message === "unload") {
             statusSpan.textContent = "closed";
-            trainBtn.disabled = true;
-        }
-        if(message === "training_image") {
-            log(data)
+            btn.disabled = true;
         }
         else {
             log("unrecognized request: ", request)
@@ -92,7 +92,14 @@ chrome.runtime.onMessage.addListener(
 
 // Get state
 sendMessage('background', "open", {}, response=> {
-    log("response: ", response);
-    if (response?.message)
+    //if (response?.message)
+    if(response?.message && response !== ""){
+        log("sendMessage response: ", response);
         statusSpan.textContent = response;
+    }
 });
+
+btn.onclick = ()=>{
+    sendMessage('tab', 'click');
+    log('click');
+}

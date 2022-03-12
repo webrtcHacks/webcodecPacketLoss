@@ -12,18 +12,21 @@ function log(...messages) {
 
 chrome.runtime.onStartup.addListener(async () => {
 
-})
-
-/*
- * Inter-script messaging
- */
+});
 
 chrome.runtime.onInstalled.addListener(async () => {
 
 });
 
+/*
+ * Inter-script messaging
+ */
+
+
 chrome.runtime.onMessage.addListener(
     async (request, sender, sendResponse) => {
+
+        log(`DEBUG: from ${sender.tab ? sender.tab.id : "unknown"}`, request, sender);
 
         // ToDo: debugging
         if(sendResponse){
@@ -31,8 +34,7 @@ chrome.runtime.onMessage.addListener(
             sendResponse(true);
         } else log("no response requested");
 
-        const tabId = sender?.tab?.id || "not specified";
-        // log(`DEBUG: from ${sender.tab ? sender.tab.id : "unknown"}`, request, sender);
+        // const tabId = sender?.tab?.id || "not specified";
         const {to, from, message, data} = request;
 
 
@@ -52,7 +54,6 @@ chrome.runtime.onMessage.addListener(
             log("popup open");
         } else if (message === 'unload') {
             log("tab unloading");
-            await removeTab(tabId);
         }
     });
 

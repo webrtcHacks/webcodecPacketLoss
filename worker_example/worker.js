@@ -11,6 +11,7 @@ let delayMs = 500; // delay in ms
 
 const sleep = ms => new Promise((resolve) => setTimeout(resolve, ms));
 
+// Default configs
 let videoConfig = {
     codec: "vp8",
     width: 640,

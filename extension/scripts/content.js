@@ -2,8 +2,8 @@ const streams = [];
 let trackInfos = [];
 // const trackIds = new Set();
 
-window.vchStreams = streams;
-let videoTabId;
+// window.vchStreams = streams;
+//let videoTabId;
 
 function debug(...messages) {
     console.debug(`vch 🕵️‍ `, ...messages);
@@ -56,8 +56,7 @@ chrome.runtime.onMessage.addListener(
         debug(`receiving "${message}" from ${from} to ${to}`, request);
 
         if (to === 'tab' || to === 'all') {
-
-            const sendTrainingImage = image => sendMessage('training', 'tab', 'training_image', image);
+            sendToInject(request);
         } else if (to === 'content') {
             // Nothing to do here yet
             debug("message for content.js", request)
@@ -85,10 +84,10 @@ const sendToInject = message => {
 document.addEventListener('vch', async e => {
     const {to, from, message, data} = e.detail;
     // ToDo: stop inject for echoing back
-    if (from === 'content')
+    if (from === 'tab')
         return;
 
-    debug("message from inject", e.detail);
+    debug(`document.eventListener message from ${from}`, e.detail);
 
     if (!e.detail) {
         return
@@ -97,8 +96,8 @@ document.addEventListener('vch', async e => {
 });
 
 // Tell background to remove unneeded tabs
-window.addEventListener('beforeunload', () => {
-    sendMessage('all', 'tab', 'unload')
+window.addEventListener('beforeunload', async () => {
+    await sendMessage('all', 'tab', 'unload')
 });
 
 // sendMessage('background', 'content', 'tab_loaded', {url: window.location.href});
