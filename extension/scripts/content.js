@@ -1,13 +1,9 @@
-const streams = [];
-let trackInfos = [];
-// const trackIds = new Set();
-
-// window.vchStreams = streams;
-//let videoTabId;
-
 function debug(...messages) {
     console.debug(`vch 🕵️‍ `, ...messages);
 }
+
+let state = "uninitialized";
+let popupOpen;
 
 debug(`content.js loaded on ${window.location.href}`);
 
@@ -23,13 +19,18 @@ addScript('/scripts/inject.js');
 debug("inject injected");
 
 /*
- * Communicate with the background worker context
+ * Communicate with the popup
  */
 
-async function sendMessage(to = 'all', from = 'tab', message, data = {}, responseCallBack = null) {
+/*
+const port = chrome.runtime.connect({name: "vch"});
+port.postMessage({state});
+port.onMessage.addListener(msg=> {
+debug(`incoming message:`, msg);
+});
+ */
 
-    if (from === 'tab' && to === 'tab')
-        return;
+async function sendMessage(to = 'popup', from = 'content', message, data = {}) {
 
     try {
         // ToDo: response callback
@@ -41,30 +42,36 @@ async function sendMessage(to = 'all', from = 'tab', message, data = {}, respons
         };
 
         // ToDo: this is expecting a response
-        await chrome.runtime.sendMessage(messageToSend, {});
+        await chrome.runtime.sendMessage(messageToSend);
 
         // debug(`sent "${message}" from "tab" to ${to} with data ${JSON.stringify(data)}`);
     } catch (err) {
+        console.error(err);
         debug("ERROR", err);
     }
 }
 
+
 // Main message handler
 chrome.runtime.onMessage.addListener(
-    async (request, sender) => {
+    async (request, sender, sendResponse) => {
         const {to, from, message, data} = request;
         debug(`receiving "${message}" from ${from} to ${to}`, request);
 
-        if (to === 'tab' || to === 'all') {
+        // This app only needs popup for now
+        if(from !== 'popup')
+            return
+
+        if(message === 'open'){
+            debug(`sending state: ${state}`);
+            popupOpen = true;
+            sendResponse({state});
+        }
+
+        else {
             sendToInject(request);
-        } else if (to === 'content') {
-            // Nothing to do here yet
-            debug("message for content.js", request)
-        } else {
-            if (sender.tab)
-                debug(`unrecognized format from tab ${sender.tab.id} on ${sender.tab ? sender.tab.url : "undefined url"}`, request);
-            else
-                debug(`unrecognized format : `, sender, request);
+            if(sendResponse)
+                sendResponse({data: "foo"});
         }
     }
 );
@@ -83,21 +90,26 @@ const sendToInject = message => {
 // Messages from inject
 document.addEventListener('vch', async e => {
     const {to, from, message, data} = e.detail;
+
     // ToDo: stop inject for echoing back
-    if (from === 'tab')
+    if (from !== 'inject')
         return;
 
+    // await sendMessage(to, from, message, data);
     debug(`document.eventListener message from ${from}`, e.detail);
 
     if (!e.detail) {
         return
     }
 
+    // ToDo: message handlers
+
+    if(message === 'state'){
+        state = data.state;
+        debug(`state from inject: ${state}`);
+    }
+
+
+
 });
 
-// Tell background to remove unneeded tabs
-window.addEventListener('beforeunload', async () => {
-    await sendMessage('all', 'tab', 'unload')
-});
-
-// sendMessage('background', 'content', 'tab_loaded', {url: window.location.href});

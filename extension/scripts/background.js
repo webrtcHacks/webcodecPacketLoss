@@ -1,13 +1,6 @@
 
 function log(...messages) {
     console.log(`👷 `, ...messages);
-    /*
-    if(messages.length > 1 || typeof messages[0]==='object')
-        console.log(`👷 ️${JSON.stringify(...messages)}`);
-    else
-        console.log(`👷 ️${messages}`);
-
-     */
 }
 
 chrome.runtime.onStartup.addListener(async () => {
@@ -20,7 +13,7 @@ chrome.runtime.onInstalled.addListener(async () => {
 
 /*
  * Inter-script messaging
- */
+ *
 
 
 chrome.runtime.onMessage.addListener(
@@ -39,16 +32,7 @@ chrome.runtime.onMessage.addListener(
 
 
         // ['background', 'all', 'training'].includes(to)
-        if (to === 'all' || to === 'background') {
-            log(`message from ${from} ${sender.tab ? sender.tab.id : ""} : ${message}, data:`, data);
-        } else {
-            if(sender.tab)
-                log(`unrecognized format from tab ${sender.tab.id} on ${sender.tab ? sender.tab.url : "undefined url"}`, request);
-            else
-                log(`unrecognized format : `, sender, request);
-
-            return
-        }
+        log(`message from ${from} ${sender.tab ? sender.tab.id : ""} : ${message}, data:`, data);
 
         if (from === "popup" && message === "open") {
             log("popup open");
@@ -59,7 +43,7 @@ chrome.runtime.onMessage.addListener(
 
 /*
  * Add our injection script new tabs
- */
+ *
 
 // Learning: needed vs. file method to give scripts access to window
 function inject(...files) {
@@ -87,3 +71,4 @@ chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
 
 log("background.js loaded");
 
+*/

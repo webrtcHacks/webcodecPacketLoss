@@ -12,7 +12,7 @@
   "permissions": [
     "activeTab",
     "tabs",
-    "scripting",
+    "scripting"
   ],
   "background": {
     "service_worker": "scripts/background.js",

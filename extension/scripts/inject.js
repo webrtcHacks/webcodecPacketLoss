@@ -11,14 +11,14 @@ function debug(...messages) {
 
 const sleep = ms => new Promise((resolve) => setTimeout(resolve, ms));
 
-function sendMessage(to = 'all', message, data = {}) {
+function sendMessage(to = 'popup', message, data = {}) {
     debug(`dispatching "${message}" from inject to ${to} with data:`, data)
 
     if (!message) {
         debug("ERROR: no message in sendMessage request");
     }
     const messageToSend = {
-        from: 'tab',
+        from: 'inject',
         to: to,
         message: message,
         data: data
@@ -28,22 +28,18 @@ function sendMessage(to = 'all', message, data = {}) {
     document.dispatchEvent(toContentEvent);
 }
 
+// Handle incoming messages
 document.addEventListener('vch', async e => {
     const {from, to, message, data} = e.detail;
-    debug(`message "${message}" from "${from}"`, e.detail);
 
     // Edge catching its own events
-    if (from === 'tab' || to !== 'tab') {
+    if (from !== 'popup') {
         return
     }
+    debug(`message "${message}" from "${from}"`, e.detail);
+    // ToDp: message handler here
 
-    if(from === 'popup'){
-        debug(`pop-up message: ${message}`)
-        // ToDp: message handler here
-        
-    }
-    else
-        debug(`some other message:`, e.detail);
+    // debug(`some other message:`, e.detail);
 });
 
 
@@ -101,7 +97,7 @@ if (!window.videoCallHelper) {
          */
         await sleep(200);
         if(!streamError){
-            sendMessage('all', 'ready')
+            sendMessage('popup', 'state', {state: 'ready'})
             return newStream;
         }
         else{
@@ -140,7 +136,7 @@ if (!window.videoCallHelper) {
 
     window.videoCallHelper = true;
 
-    sendMessage('all', 'loaded');
+    sendMessage('popup', 'state', {state: 'loaded'});
 
 } else {
     debug("shims already loaded")
