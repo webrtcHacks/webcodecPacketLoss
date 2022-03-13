@@ -5,7 +5,20 @@ function debug(...messages) {
 let state = "uninitialized";
 let popupOpen;
 
+// ToDo: testing - doesn't work
+// const worker = new Worker("chrome-extension://bhanoknolaefhhiogpmoghangjkmaicn/scripts/worker.js")
+
 debug(`content.js loaded on ${window.location.href}`);
+
+
+// Add the worker script as a script tag
+
+/*
+const workerScript = document.createElement("script");
+workerScript.id = "vch_packet_loss_worker";
+workerScript.src = chrome.runtime.getURL('/scripts/worker.js');
+(document.head || document.documentElement).appendChild(workerScript);
+ */
 
 // inject inject script
 function addScript(path) {
@@ -15,8 +28,10 @@ function addScript(path) {
     (document.head || document.documentElement).appendChild(script);
 }
 
+addScript('/scripts/worker.js')
 addScript('/scripts/inject.js');
 debug("inject injected");
+
 
 /*
  * Communicate with the popup
@@ -89,5 +104,6 @@ document.addEventListener('vch', async e => {
 onbeforeunload = ()=>{
     state = "closing";
     if(popupOpen)
-        popupPort.postMessage({state});
+        popupPort.postMessage({state})
+            .catch(err=>debug(err));
 }

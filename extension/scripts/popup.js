@@ -24,6 +24,8 @@ chrome.tabs.query({active: true, currentWindow: true})
                 injectState = msg.state;
                 statusSpan.innerText = injectState;
                 console.log(`set injectState to: ${injectState}`);
+                if(injectState === 'ready')
+                    btn.disabled = false;
             }
             else
                 console.log(`unhandled incoming message from context: `, msg);

@@ -42,6 +42,7 @@
     {
       "resources": [
         "scripts/inject.js",
+        "scripts/worker.js",
         "styles/*.css"
       ],
       "matches": [
