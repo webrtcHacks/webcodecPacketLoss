@@ -28,7 +28,7 @@ function addScript(path) {
     (document.head || document.documentElement).appendChild(script);
 }
 
-addScript('/scripts/worker.js')
+// addScript('/scripts/impairment.js')
 addScript('/scripts/inject.js');
 debug("inject injected");
 
