@@ -46,13 +46,17 @@ chrome.runtime.onConnect.addListener((port)=> {
     popupOpen = true;
 
     port.onMessage.addListener((msg)=> {
-        debug(`incoming message from popup:`, msg);
+        // debug(`incoming message from popup:`, msg);
 
+        if(msg.command)
+            sendToInject(msg.command)
         // message handler
-        if(msg.command === 'start'){
-            debug("this is where I should start")
-            sendToInject('start');
+        /*
+        if(msg.command === 'start' || msg.command === 'stop'){
+            sendToInject(msg.command);
         }
+
+         */
     });
 
     port.onDisconnect.addListener((msg)=>{
@@ -70,7 +74,7 @@ chrome.runtime.onConnect.addListener((port)=> {
  */
 
 const sendToInject = message => {
-    debug("sending this to inject.js", message);
+    debug("sending this to inject.js: ", message);
     const toInjectEvent = new CustomEvent('vch', {detail: message});
     document.dispatchEvent(toInjectEvent);
 };

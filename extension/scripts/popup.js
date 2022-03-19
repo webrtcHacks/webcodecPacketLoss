@@ -1,5 +1,8 @@
 const statusSpan = document.querySelector('span#gumStatus');
-const btn = document.querySelector('button');
+const btnStart = document.querySelector('button#start');
+const btnSevere= document.querySelector('button#severe');
+const btnStop = document.querySelector('button#stop');
+
 let injectState;
 
 function log(...messages) {
@@ -24,8 +27,9 @@ chrome.tabs.query({active: true, currentWindow: true})
                 injectState = msg.state;
                 statusSpan.innerText = injectState;
                 console.log(`set injectState to: ${injectState}`);
-                if(injectState === 'ready')
-                    btn.disabled = false;
+                if(injectState === 'ready'){
+                    btnStart.disabled = false;
+                }
             }
             else
                 console.log(`unhandled incoming message from context: `, msg);
@@ -33,7 +37,27 @@ chrome.tabs.query({active: true, currentWindow: true})
         });
     });
 
-btn.onclick = async () => {
+btnStart.onclick = async () => {
     port.postMessage({command: 'start'});
-    console.log('click');
+    console.log('start click');
+    btnStop.disabled = false;
+    btnSevere.disabled = false;
+    btnStart.disabled = true;
+}
+
+btnSevere.onclick = async () => {
+    port.postMessage({command: 'severe'});
+    console.log('severe click');
+    btnStart.disabled = true;
+    btnSevere.disabled = true;
+    btnStop.disabled = false;
+}
+
+btnStop.onclick = async () => {
+    port.postMessage({command: 'stop'});
+    console.log('stop click');
+    btnStart.disabled = false;
+    btnSevere.disabled = true;
+    btnStop.disabled = true;
+
 }

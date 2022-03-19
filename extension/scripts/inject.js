@@ -8,84 +8,86 @@ class Impairment {
     #encoder;
     #decoder;
     #frameCounter = 0;
+    kind;
+    codecConfig;
+    impairmentConfig;
+    id;
+    trackSettings;
+
+    // Default configs
+     #videoCodecConfig = {
+        codec: "vp8",
+        width: 640,
+        height: 480,
+        bitrate: 2_000_000,
+        framerate: 30,
+    };
+
+    #audioCodecConfig = {
+        numberOfChannels: 1,
+        sampleRate: 48_000,
+        codec: 'opus',
+        bitrate: 40_000
+    }
 
     // Todo: expose a way to set these
     loss = 0.005;
     payloadSize = 90;
-    keyFrameInterval = 150;
+    keyFrameInterval = 100;
     delayMs = 500;
-    transformStream;
 
-    constructor(kind, id, settings) {
+
+    // ToDo: apply the impairment to the track settings
+    constructor(kind, id, trackSettings, impairmentConfig) {
 
         this.kind = kind;
         this.id = id;           // for debugging
-        this.settings = settings;
+        this.trackSettings = trackSettings;
+        this.impairmentConfig = impairmentConfig;
 
-        // Default configs
-        let videoConfig = {
-            codec: "vp8",
-            width: 640,
-            height: 480,
-            bitrate: 2_000_000,
-            framerate: 30,
-        };
+        this.#applyConfig();
 
-        let audioConfig = {
-            numberOfChannels: 1,
-            sampleRate: 48_000,
-            codec: 'opus',
-            bitrate: 40_000
-        }
-
-        let config = {};
+        /*
         if (kind === 'video') {
-            config = videoConfig;
-            config.height = settings.height;                // ToDo: error check these
-            config.width = settings.width;
-            config.framerate = settings.frameRate;     // Note: different camelCase :(
-            // ToDo: make sure to use the same codec - get encoding params
+            const {height, width, frameRate} = trackSettings;
+            const {widthFactor, heightFactor, framerateFactor} = impairmentConfig.video;
+
+            this.codecConfig = {
+                codec: "vp8",
+                width: (width / (widthFactor || 1)).toFixed(0),
+                height: (height / (heightFactor || 1)).toFixed(0),
+                framerate: (frameRate / (framerateFactor || 1)).toFixed(0)
+            }
+
+            // debug(this.codecConfig);
+
+            const {loss, payloadSize, keyFrameInterval, delayMs} = impairmentConfig.video;
+            this.loss = loss || 0;
+            this.payloadSize = payloadSize || 90;
+            this.keyFrameInterval = keyFrameInterval || 100;
+            this.delayMs = delayMs || 10;
+
         } else if (kind === "audio") {
-            config = audioConfig;
-            config.numberOfChannels = settings.channelCount;
-            config.sampleRate = settings.sampleRate;
+            const {channelCount, sampleRate} = trackSettings;
+            const {loss, payloadSize, delayMs, bitrate} = impairmentConfig.audio;
+            this.codecConfig = {
+                codec: 'opus',
+                numberOfChannels: channelCount || 1,
+                sampleRate: sampleRate,
+                bitrate: Math.max(bitrate || 12_000, 6000)
+            }
+
+            this.loss = loss || 0;
+            this.payloadSize = payloadSize || 400;
+            this.delayMs = delayMs || 10;
+
         } else{
             return new Error(`invalid kind. kind needs to be audio or video. set to ${kind}`);
         }
+        // this.config = codecConfig;
+        this.#setupCodec(kind, this.codecConfig);
 
-        this.config = config;
-
-        this.#setupCodec(kind, config);
-
-        this.transformStream = new TransformStream({
-            start: (controller) => this.#controller = controller,
-            transform: async (frame) => {
-                if (this.#operation === 'kill') {
-                    frame.close();
-                    this.#encoder.flush();
-                    this.#encoder.close();
-                } else if (this.#encoder.encodeQueueSize > 2) {
-                    Impairment.#debug(`${kind} encoder overwhelmed, dropping frame`, frame)
-                    frame.close();
-                } else {
-                    const keyFrame = this.#frameCounter % this.keyFrameInterval === 0;
-                    this.#frameCounter++;
-
-                    if (this.#operation === 'impair') {
-                        await this.#encoder.encode(frame, kind === 'video' ? {keyFrame} : null);
-                    } else if (this.#operation === 'passthrough') {
-                        await this.#controller.enqueue(frame);
-                    } else {
-                        Impairment.#debug(`invalid operation: ${this.#operation}, closing`);
-                        this.#operation = 'kill';
-                    }
-                    frame.close();
-                }
-            },
-            flush: (controller) => {
-                controller.terminate();
-            }
-        })
+         */
 
     }
 
@@ -97,7 +99,8 @@ class Impairment {
         await new Promise((resolve) => setTimeout(resolve, ms));
     }
 
-    #addPacketLoss(chunk, kind) {
+    // ToDo: update impairment values here
+    #addPacketLoss(chunk) {
         let chunkWithLoss = new Uint8Array(chunk.byteLength);
         chunk.copyTo(chunkWithLoss);
 
@@ -111,14 +114,14 @@ class Impairment {
             data: chunkWithLoss
         };
 
-        if (kind === 'video')
+        if (this.kind === 'video')
             return new EncodedVideoChunk(chunkObj);
-        else if (kind === 'audio')
+        else if (this.kind === 'audio')
             return new EncodedAudioChunk(chunkObj);
     }
 
     // WebCodecs setup
-    #setupCodec(kind, codecConfig) {
+    #setupCodec(codecConfig) {
         const handleDecodedFrame = async frame => {
             if (this.#operation !== 'kill')
                 await this.#controller.enqueue(frame);
@@ -127,21 +130,21 @@ class Impairment {
 
         const handleEncodedFrame = async (chunk, metadata) => {
             if (metadata.decoderConfig) {
-                debug(`${kind} metadata: `, metadata)
+                debug(`${this.kind} metadata: `, metadata)
             }
-            const modifiedChunk = this.#addPacketLoss(chunk, kind);
+            const modifiedChunk = this.#addPacketLoss(chunk, this.kind);
             await this.#sleep(this.delayMs);
             this.#decoder.decode(modifiedChunk);
         }
 
-        if (kind === 'video') {
+        if (this.kind === 'video') {
             // Video decode
             this.#decoder = new VideoDecoder({output: handleDecodedFrame, error: debug});
             this.#decoder.configure(codecConfig);
             // Video encode
             this.#encoder = new VideoEncoder({output: handleEncodedFrame, error: debug});
             this.#encoder.configure(codecConfig);
-        } else if (kind === 'audio') {
+        } else if (this.kind === 'audio') {
             // Audio decode
             this.#decoder = new AudioDecoder({output: handleDecodedFrame, error: debug});
             this.#decoder.configure(codecConfig);
@@ -149,6 +152,119 @@ class Impairment {
             this.#encoder = new AudioEncoder({output: handleEncodedFrame, error: debug});
             this.#encoder.configure(codecConfig);
         }
+    }
+
+    #applyConfig(){
+        if(this.kind==='video'){
+            const {height, width, frameRate} = this.trackSettings;
+            const {widthFactor, heightFactor, framerateFactor} = this.impairmentConfig.video;
+
+            // Configure the codec
+            this.codecConfig = {
+                codec: "vp8",
+                width: (width / (widthFactor || 1)).toFixed(0),
+                height: (height / (heightFactor || 1)).toFixed(0),
+                framerate: (frameRate / (framerateFactor || 1)).toFixed(0)
+            }
+
+            // Set up the impairment
+            const {loss, payloadSize, keyFrameInterval, delayMs} = this.impairmentConfig.video;
+            this.loss = loss || 0;
+            this.payloadSize = payloadSize || 90;
+            this.keyFrameInterval = keyFrameInterval || 100;
+            this.delayMs = delayMs || 10;
+        }
+        else if(this.kind === 'audio'){
+            // Configure the codec
+            const {channelCount, sampleRate} = this.trackSettings;
+            const {loss, payloadSize, delayMs, bitrate} = this.impairmentConfig.audio;
+
+            this.codecConfig = {
+                codec: 'opus',
+                numberOfChannels: channelCount || 1,
+                sampleRate: sampleRate,
+                bitrate: Math.max(bitrate || 10_000, 6000)
+            }
+
+            // Set up the impairment
+            this.loss = loss || 0;
+            this.payloadSize = payloadSize || 400;
+            this.delayMs = delayMs || 10;
+        }
+
+        this.#setupCodec(this.codecConfig);
+
+    }
+
+    get transformStream(){
+        return new TransformStream({
+            start: (controller) => this.#controller = controller,
+            transform: async (frame) => {
+                if (this.#operation === 'kill') {
+                    frame.close();
+                    this.#encoder.flush();
+                    this.#encoder.close();
+                } else if (this.#encoder.encodeQueueSize > 2) {
+                    Impairment.#debug(`${this.kind} encoder overwhelmed, dropping frame`, frame)
+                    frame.close();
+                } else {
+                    const keyFrame = this.#frameCounter % this.keyFrameInterval === 0;
+                    this.#frameCounter++;
+
+                    if (this.#operation === 'impair') {
+                        await this.#encoder.encode(frame, this.kind === 'video' ? {keyFrame} : null);
+                    } else if (this.#operation === 'passthrough') {
+                        await this.#controller.enqueue(frame);
+                    } else {
+                        Impairment.#debug(`invalid operation: ${this.#operation}, closing`);
+                        this.#operation = 'kill';
+                    }
+                    frame.close();
+                }
+            },
+            flush: (controller) => {
+                controller.terminate();
+            }
+        })
+    }
+
+
+    set config(config){
+        this.impairmentConfig = config;
+        this.#applyConfig();
+        this.#decoder.configure(this.codecConfig);
+        this.#encoder.configure(this.codecConfig);
+    }
+
+    set #configBad(config){
+        if(this.kind==='audio'){
+            //const
+
+            const {bitrate} = config;
+            this.codecConfig.bitrate = bitrate;
+        }
+        else if(this.kind==='video'){
+            const {loss, payloadSize, keyFrameInterval, delayMs} = config;
+            this.impairmentConfig.video = {
+                loss: loss || this.loss,
+                payloadSize: payloadSize || this.payloadSize,
+                keyFrameInterval: keyFrameInterval || this.keyFrameInterval,
+                delayMs: delayMs || this.delayMs
+            }
+
+            const {width, height, bitrate, framerate} = config;
+            this.codecConfig = {
+                codec: this.codecConfig.codec,
+                width: width || this.codecConfig.width,
+                height: height || this.codecConfig.height,
+                bitrate: bitrate || this.codecConfig.bitrate,
+                framerate: framerate || this.codecConfig.framerate
+            }
+
+        }
+        this.#decoder.configure(this.codecConfig);
+        this.#encoder.configure(this.codecConfig);
+
     }
 
     start() {
@@ -205,7 +321,9 @@ document.addEventListener('vch', async e => {
     //const {from, to, message, data} = e.detail;
     //debug(`message "${message}" from "${from}"`, e.detail);
 
+
     const message = e.detail;
+    debug(e.detail);
 
     // Edge catching its own events
     /*
@@ -218,9 +336,38 @@ document.addEventListener('vch', async e => {
     if (message === 'start') {
         vchTransforms.forEach(transform => transform.start());
         debug(`impairment started on ${vchTransforms.length} stream(s)`);
-    } else if (message === 'stop') {
+    } else if(message === 'severe'){
+        // ToDo:
+        const impairmentConfig = {
+            audio: {
+                loss: 0.40,
+                payloadSize: 600,
+                delayMs: 600,
+                // codec config
+                bitrate: 6_000
+            },
+            video: {
+                loss: 0.01,
+                payloadSize:  90,
+                keyFrameInterval: 15,
+                delayMs: 500,
+                // codec config
+                widthFactor: 4,
+                heightFactor: 4,
+                bitrate: 350_000,
+                framerateFactor: 4
+            }
+        }
+        vchTransforms.forEach(transform => transform.config = impairmentConfig);
+        debug(`impairment set to severe on ${vchTransforms.length} stream(s)`);
+
+    }
+    else if (message === 'stop') {
         vchTransforms.forEach(transform => transform.pause());
         debug(`impairment stopped on ${vchTransforms.length} stream(s)`);
+    }
+    else{
+        // debug(`unhandled incoming message: ${message}`);
     }
 });
 
@@ -252,7 +399,29 @@ if (!window.videoCallHelper) {
 
             // ToDo: invoke the transform stream without worker here
             debug("settings before, ", settings);
-            const impairment = new Impairment(kind, id, settings);
+
+            const impairmentConfig = {
+                audio: {
+                    loss: 0.20,
+                    payloadSize: 400,
+                    delayMs: 500,
+                    // codec config
+                    bitrate: 12_000
+                },
+                video: {
+                    loss: 0.005,
+                    payloadSize:  90,
+                    keyFrameInterval: 30,
+                    delayMs: 250,
+                    // codec config
+                    widthFactor: 2,
+                    heightFactor: 2,
+                    bitrate: 750_000,
+                    framerateFactor: 2
+                }
+            }
+
+            const impairment = new Impairment(kind, id, settings, impairmentConfig);
             vchTransforms.push(impairment);
 
             newStream.addTrack(generator);
