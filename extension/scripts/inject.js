@@ -8,6 +8,8 @@ class Impairment {
     #encoder;
     #decoder;
     #frameCounter = 0;
+    #forceKeyFrame = false;
+
     kind;
     codecConfig;
     impairmentConfig;
@@ -45,49 +47,8 @@ class Impairment {
         this.trackSettings = trackSettings;
         this.impairmentConfig = impairmentConfig;
 
-        this.#applyConfig();
-
-        /*
-        if (kind === 'video') {
-            const {height, width, frameRate} = trackSettings;
-            const {widthFactor, heightFactor, framerateFactor} = impairmentConfig.video;
-
-            this.codecConfig = {
-                codec: "vp8",
-                width: (width / (widthFactor || 1)).toFixed(0),
-                height: (height / (heightFactor || 1)).toFixed(0),
-                framerate: (frameRate / (framerateFactor || 1)).toFixed(0)
-            }
-
-            // debug(this.codecConfig);
-
-            const {loss, payloadSize, keyFrameInterval, delayMs} = impairmentConfig.video;
-            this.loss = loss || 0;
-            this.payloadSize = payloadSize || 90;
-            this.keyFrameInterval = keyFrameInterval || 100;
-            this.delayMs = delayMs || 10;
-
-        } else if (kind === "audio") {
-            const {channelCount, sampleRate} = trackSettings;
-            const {loss, payloadSize, delayMs, bitrate} = impairmentConfig.audio;
-            this.codecConfig = {
-                codec: 'opus',
-                numberOfChannels: channelCount || 1,
-                sampleRate: sampleRate,
-                bitrate: Math.max(bitrate || 12_000, 6000)
-            }
-
-            this.loss = loss || 0;
-            this.payloadSize = payloadSize || 400;
-            this.delayMs = delayMs || 10;
-
-        } else{
-            return new Error(`invalid kind. kind needs to be audio or video. set to ${kind}`);
-        }
-        // this.config = codecConfig;
-        this.#setupCodec(kind, this.codecConfig);
-
-         */
+        this.#setConfig();
+        this.#setupCodec();
 
     }
 
@@ -121,7 +82,7 @@ class Impairment {
     }
 
     // WebCodecs setup
-    #setupCodec(codecConfig) {
+    #setupCodec() {
         const handleDecodedFrame = async frame => {
             if (this.#operation !== 'kill')
                 await this.#controller.enqueue(frame);
@@ -140,21 +101,22 @@ class Impairment {
         if (this.kind === 'video') {
             // Video decode
             this.#decoder = new VideoDecoder({output: handleDecodedFrame, error: debug});
-            this.#decoder.configure(codecConfig);
+            this.#decoder.configure(this.codecConfig);
             // Video encode
             this.#encoder = new VideoEncoder({output: handleEncodedFrame, error: debug});
-            this.#encoder.configure(codecConfig);
+            this.#encoder.configure(this.codecConfig);
         } else if (this.kind === 'audio') {
             // Audio decode
             this.#decoder = new AudioDecoder({output: handleDecodedFrame, error: debug});
-            this.#decoder.configure(codecConfig);
+            this.#decoder.configure(this.codecConfig);
             // Audio encode
             this.#encoder = new AudioEncoder({output: handleEncodedFrame, error: debug});
-            this.#encoder.configure(codecConfig);
+            this.#encoder.configure(this.codecConfig);
         }
     }
 
-    #applyConfig(){
+    #setConfig(){
+
         if(this.kind==='video'){
             const {height, width, frameRate} = this.trackSettings;
             const {widthFactor, heightFactor, framerateFactor} = this.impairmentConfig.video;
@@ -192,8 +154,6 @@ class Impairment {
             this.delayMs = delayMs || 10;
         }
 
-        this.#setupCodec(this.codecConfig);
-
     }
 
     get transformStream(){
@@ -208,13 +168,20 @@ class Impairment {
                     Impairment.#debug(`${this.kind} encoder overwhelmed, dropping frame`, frame)
                     frame.close();
                 } else {
-                    const keyFrame = this.#frameCounter % this.keyFrameInterval === 0;
-                    this.#frameCounter++;
-
                     if (this.#operation === 'impair') {
+                        const keyFrame = this.#frameCounter % this.keyFrameInterval === 0 || this.#forceKeyFrame;
+                        if(this.#forceKeyFrame){
+                            debug(`set ${this.#frameCounter} to keyframe`);
+                            // this.#forceKeyFrame = false;
+                        }
+
+                        this.#frameCounter++;
                         await this.#encoder.encode(frame, this.kind === 'video' ? {keyFrame} : null);
                     } else if (this.#operation === 'passthrough') {
                         await this.#controller.enqueue(frame);
+                    }
+                    else if(this.#operation === 'skip'){
+                      frame.close();
                     } else {
                         Impairment.#debug(`invalid operation: ${this.#operation}, closing`);
                         this.#operation = 'kill';
@@ -231,39 +198,25 @@ class Impairment {
 
     set config(config){
         this.impairmentConfig = config;
-        this.#applyConfig();
-        this.#decoder.configure(this.codecConfig);
+
+        this.#setConfig();
+        this.#forceKeyFrame = true;
         this.#encoder.configure(this.codecConfig);
-    }
+        // this.#encoder.flush();
 
-    set #configBad(config){
-        if(this.kind==='audio'){
-            //const
 
-            const {bitrate} = config;
-            this.codecConfig.bitrate = bitrate;
-        }
-        else if(this.kind==='video'){
-            const {loss, payloadSize, keyFrameInterval, delayMs} = config;
-            this.impairmentConfig.video = {
-                loss: loss || this.loss,
-                payloadSize: payloadSize || this.payloadSize,
-                keyFrameInterval: keyFrameInterval || this.keyFrameInterval,
-                delayMs: delayMs || this.delayMs
-            }
-
-            const {width, height, bitrate, framerate} = config;
-            this.codecConfig = {
-                codec: this.codecConfig.codec,
-                width: width || this.codecConfig.width,
-                height: height || this.codecConfig.height,
-                bitrate: bitrate || this.codecConfig.bitrate,
-                framerate: framerate || this.codecConfig.framerate
-            }
-
-        }
         this.#decoder.configure(this.codecConfig);
-        this.#encoder.configure(this.codecConfig);
+        // this.#decoder.flush();
+
+        this.#forceKeyFrame = false;
+
+        // ToDo: fix / catch errors here - DOMException: Failed to execute 'decode' on 'VideoDecoder': A key frame is required after configure() or flush().
+
+        /*
+        this.#sleep(1000).then(()=>{
+            this.#forceKeyFrame = false;
+        });
+         */
 
     }
 
@@ -294,8 +247,6 @@ window.vchTransforms = vchTransforms;
 function debug(...messages) {
     console.debug(`vch 💉 `, ...messages);
 }
-
-const sleep = ms => new Promise((resolve) => setTimeout(resolve, ms));
 
 // let workerBlob;
 
@@ -347,14 +298,14 @@ document.addEventListener('vch', async e => {
                 bitrate: 6_000
             },
             video: {
-                loss: 0.01,
+                loss: 0.05,
                 payloadSize:  90,
                 keyFrameInterval: 15,
                 delayMs: 500,
                 // codec config
                 widthFactor: 4,
                 heightFactor: 4,
-                bitrate: 350_000,
+                bitrate: 300_000,
                 framerateFactor: 4
             }
         }
@@ -409,7 +360,7 @@ if (!window.videoCallHelper) {
                     bitrate: 12_000
                 },
                 video: {
-                    loss: 0.005,
+                    loss: 0.0025,
                     payloadSize:  90,
                     keyFrameInterval: 30,
                     delayMs: 250,
@@ -441,7 +392,7 @@ if (!window.videoCallHelper) {
          * These were not available right away. Adding the delay fixes it
          * ToDo: experiment with delay timing
          */
-        await sleep(200);
+        await new Promise((resolve) => setTimeout(resolve, 200))
         if (!streamError) {
             sendMessage('popup', 'state', {state: 'ready'})
             return newStream;

@@ -3,6 +3,8 @@ const btnStart = document.querySelector('button#start');
 const btnSevere= document.querySelector('button#severe');
 const btnStop = document.querySelector('button#stop');
 
+const inputRange = document.querySelector(' input[type=range]');
+
 let injectState;
 
 function log(...messages) {
@@ -37,12 +39,13 @@ chrome.tabs.query({active: true, currentWindow: true})
         });
     });
 
+/*
 btnStart.onclick = async () => {
     port.postMessage({command: 'start'});
     console.log('start click');
-    btnStop.disabled = false;
-    btnSevere.disabled = false;
     btnStart.disabled = true;
+    btnSevere.disabled = false;
+    btnStop.disabled = false;
 }
 
 btnSevere.onclick = async () => {
@@ -59,5 +62,29 @@ btnStop.onclick = async () => {
     btnStart.disabled = false;
     btnSevere.disabled = true;
     btnStop.disabled = true;
+
+}
+ */
+
+//console.log(inputRange);
+inputRange.onchange = (e)=>{
+    let command;
+    //console.log(e.target.value);
+    switch(Number(e.target.value)){
+        case 3:
+            command = 'stop';
+            break;
+        case 2:
+            command = 'start';
+            break;
+        case 1:
+            command = 'severe';
+            break;
+        default:
+            console.log("invalid selection");
+    }
+    console.log(`${command} selected`);
+    port.postMessage({command});
+
 
 }

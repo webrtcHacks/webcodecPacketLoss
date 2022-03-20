@@ -105,9 +105,12 @@ document.addEventListener('vch', async e => {
 
 });
 
-onbeforeunload = ()=>{
+/*
+// using an onbeforeunload here was making a "are you sure you want to close" message
+onunload = async () => {
     state = "closing";
     if(popupOpen)
-        popupPort.postMessage({state})
+        await popupPort.postMessage({state})
             .catch(err=>debug(err));
 }
+ */

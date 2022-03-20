@@ -2,15 +2,107 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Popup</title>
+    <link rel="stylesheet" href="../node_modules/bootstrap/dist/css/bootstrap.min.css">
+    <script src="../node_modules/bootstrap/dist/js/bootstrap.bundle.js"></script>
+    <style>
+        .container {
+            width: 400px
+        }
+
+        input[type=range] {
+            -webkit-appearance: slider-vertical;
+            transform-origin: left;
+            transform: scaleX(-1);
+            /*transform:rotate(180deg);*/
+            transform-origin: center;
+        }
+
+        div.range-slider {
+            margin: 0;
+        }
+
+        input#slider {
+            width: 50px;
+        }
+
+        table {
+            /*font-size: small;*/
+        }
+
+        .footer {
+            font-size: x-small;
+        }
+
+
+    </style>
 </head>
 <body>
-<h3>pop-up control panel</h3>
-<p>State: <span id="gumStatus">inactive</span></p>
-<p></p>
-<button id="start" disabled>Start</button>
-<button id="severe" disabled>Severe</button>
-<button id="stop" disabled>Stop</button>
-<script src="../scripts/popup.js" type="module"></script>
+<div class="container pt-4">
+    <div class="row">
+        <h4 class=""><img src="../assets/icon-72.png" height="32" alt="bar crossing out a video call">
+            <span class="align-bottom">&nbsp; Bad Connection Simulator</span>
+            <span class="float-end align-top">
+                    <a href="#">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" fill="currentColor"
+                             class="bi bi-info-circle" viewBox="0 0 16 16">
+                            <path d="M8 15A7 7 0 1 1 8 1a7 7 0 0 1 0 14zm0 1A8 8 0 1 0 8 0a8 8 0 0 0 0 16z"/>
+                            <path d="m8.93 6.588-2.29.287-.082.38.45.083c.294.07.352.176.288.469l-.738 3.468c-.194.897.105 1.319.808 1.319.545 0 1.178-.252 1.465-.598l.088-.416c-.2.176-.492.246-.686.246-.275 0-.375-.193-.304-.533L8.93 6.588zM9 4.5a1 1 0 1 1-2 0 1 1 0 0 1 2 0z"/>
+                        </svg>
+                    </a>
+            </span>
+        </h4>
+    </div>
+
+    <!--div class="row">
+    <button id="start" disabled>Start</button>
+    <button id="severe" disabled>Severe</button>
+    <button id="stop" disabled>Stop</button>
+    </div-->
+    <div class="row">
+        <p class="fw-lighter">Status: <span id="gumStatus">inactive</span></p>
+    </div>
+    <div class="row flex-nowrap">
+        <div class="col">
+            <h5 class="fs-6">Select an impairment level</h5>
+            <table class="table table-sm align-middle">
+                <tr>
+                    <td class="text-end"><span id="active">None</span></td>
+                    <td rowspan=3 style="width:50px">
+                        <div class="range-slider">
+                            <input type="range" id="slider" min="1" max="3" value="3" step="1" list="tick_marks" class="align-middle">
+                            <datalist id="tick_marks">
+                                <option value="none"></option>
+                                <option value="moderate"></option>
+                                <option value="severe"></option>
+                            </datalist>
+                        </div>
+                    </td>
+                    <td><span id="active_desc"
+                              class="small fw-light">Normal connection - select an option to start</span></td>
+                </tr>
+                <tr>
+                    <td class="text-end"><span>Moderate</span></td>
+                    <td class="small fw-light">Bad connection – noticeable video issues and audio clipping</td>
+                </tr>
+                <tr>
+                    <td class="text-end"><span>Severe</span></td>
+                    <td class="small fw-light">Unusable connection – unintelligible audio and video</td>
+                </tr>
+            </table>
+        </div>
+    </div>
+    <div class="row flex-nowrap">
+        <p class="footer text-center">
+            ©2022 Cogint Labs, LLC
+            •
+            <a href="#">Extension Options</a>
+            •
+            <a href="#">More information</a>
+        </p>
+
+    </div>
+    <script src="../scripts/popup.js" type="module"></script>
 </body>
 </html>
