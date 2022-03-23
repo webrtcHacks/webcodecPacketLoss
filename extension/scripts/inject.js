@@ -1,10 +1,19 @@
 'use strict';
+
+
 /*
  * Class that sets up a transform stream that can add an impairment
+ * The constructor and takes a track settings object and an  impairment config object
+ *  and returns a Transform Stream object set to `passthrough`
+ * The Encoder/Decoder with impairment is invoked of the operation = `impair`
+ * 'passthrough' just pushes the frame through without modification
+ * The start function changes the operation to 'impair'
+ * The config setter applies an impairment configuration
+ * Static clesses are included for a moderation and severe impairment
  */
 class Impairment {
     #controller;
-    #operation = 'passthrough';
+    operation = 'passthrough';
     #encoder;
     #decoder;
     #frameCounter = 0;
@@ -17,7 +26,8 @@ class Impairment {
     trackSettings;
 
     // Default configs
-     #videoCodecConfig = {
+    /*
+    #videoCodecConfig = {
         codec: "vp8",
         width: 640,
         height: 480,
@@ -31,23 +41,65 @@ class Impairment {
         codec: 'opus',
         bitrate: 40_000
     }
+     */
 
-    // Todo: expose a way to set these
     loss = 0.005;
     payloadSize = 90;
     keyFrameInterval = 100;
     delayMs = 500;
 
+    static moderateImpairmentConfig = {
+        audio: {
+            loss: 0.20,
+            payloadSize: 400,
+            delayMs: 500,
+            // codec config
+            bitrate: 12_000
+        },
+        video: {
+            loss: 0.0025,
+            payloadSize: 90,
+            keyFrameInterval: 30,
+            delayMs: 250,
+            // codec config
+            widthFactor: 2,
+            heightFactor: 2,
+            bitrate: 750_000,
+            framerateFactor: 2
+        }
+    }
+
+    static severeImpairmentConfig = {
+        audio: {
+            loss: 0.40,
+            payloadSize: 600,
+            delayMs: 600,
+            // codec config
+            bitrate: 6_000
+        },
+        video: {
+            loss: 0.05,
+            payloadSize: 90,
+            keyFrameInterval: 15,
+            delayMs: 500,
+            // codec config
+            widthFactor: 4,
+            heightFactor: 4,
+            bitrate: 300_000,
+            framerateFactor: 4
+        }
+    }
+
 
     // ToDo: apply the impairment to the track settings
-    constructor(kind, id, trackSettings, impairmentConfig) {
+    constructor(kind, id, trackSettings, impairmentConfig = Impairment.moderateImpairmentConfig) {
 
         this.kind = kind;
         this.id = id;           // for debugging
         this.trackSettings = trackSettings;
         this.impairmentConfig = impairmentConfig;
 
-        this.#setConfig();
+        this.#loadConfig();
         this.#setupCodec();
 
     }
@@ -84,18 +136,28 @@ class Impairment {
     // WebCodecs setup
     #setupCodec() {
         const handleDecodedFrame = async frame => {
-            if (this.#operation !== 'kill')
+            if (this.operation !== 'kill')
                 await this.#controller.enqueue(frame);
             frame.close();
         }
 
         const handleEncodedFrame = async (chunk, metadata) => {
             if (metadata.decoderConfig) {
-                debug(`${this.kind} metadata: `, metadata)
+                Impairment.#debug(`${this.kind} metadata: `, metadata);
             }
             const modifiedChunk = this.#addPacketLoss(chunk, this.kind);
             await this.#sleep(this.delayMs);
-            this.#decoder.decode(modifiedChunk);
+
+            // this.#decoder.decode(modifiedChunk)
+
+            // ToDo: figure out how to make sure this has a keyframe after configure
+            // hypothesis: packets caught in sleep function
+            // add something like if(this.#frameIgnore
+            try {
+                this.#decoder.decode(modifiedChunk)
+            } catch (err) {
+                Impairment.#debug(`frame ${this.#frameCounter}`, err)
+            }
         }
 
         if (this.kind === 'video') {
@@ -115,9 +177,8 @@ class Impairment {
         }
     }
 
-    #setConfig(){
-
-        if(this.kind==='video'){
+    #loadConfig() {
+        if (this.kind === 'video') {
             const {height, width, frameRate} = this.trackSettings;
             const {widthFactor, heightFactor, framerateFactor} = this.impairmentConfig.video;
 
@@ -135,8 +196,7 @@ class Impairment {
             this.payloadSize = payloadSize || 90;
             this.keyFrameInterval = keyFrameInterval || 100;
             this.delayMs = delayMs || 10;
-        }
-        else if(this.kind === 'audio'){
+        } else if (this.kind === 'audio') {
             // Configure the codec
             const {channelCount, sampleRate} = this.trackSettings;
             const {loss, payloadSize, delayMs, bitrate} = this.impairmentConfig.audio;
@@ -156,35 +216,37 @@ class Impairment {
 
     }
 
-    get transformStream(){
+    get transformStream() {
         return new TransformStream({
             start: (controller) => this.#controller = controller,
             transform: async (frame) => {
-                if (this.#operation === 'kill') {
+                if (this.operation === 'kill') {
                     frame.close();
                     this.#encoder.flush();
                     this.#encoder.close();
+                    this.#decoder.flush();
+                    this.#decoder.close();
                 } else if (this.#encoder.encodeQueueSize > 2) {
                     Impairment.#debug(`${this.kind} encoder overwhelmed, dropping frame`, frame)
                     frame.close();
                 } else {
-                    if (this.#operation === 'impair') {
+                    if (this.operation === 'impair') {
                         const keyFrame = this.#frameCounter % this.keyFrameInterval === 0 || this.#forceKeyFrame;
-                        if(this.#forceKeyFrame){
-                            debug(`set ${this.#frameCounter} to keyframe`);
-                            // this.#forceKeyFrame = false;
+                        if (this.#forceKeyFrame) {
+                            Impairment.#debug(`set ${this.#frameCounter} to keyframe`);
+                            this.#forceKeyFrame = false;
                         }
 
                         this.#frameCounter++;
                         await this.#encoder.encode(frame, this.kind === 'video' ? {keyFrame} : null);
-                    } else if (this.#operation === 'passthrough') {
+                    } else if (this.operation === 'passthrough') {
                         await this.#controller.enqueue(frame);
-                    }
-                    else if(this.#operation === 'skip'){
-                      frame.close();
+                    } else if (this.operation === 'skip') {
+                        Impairment.#debug("skipping frame");
+                        frame.close();
                     } else {
-                        Impairment.#debug(`invalid operation: ${this.#operation}, closing`);
-                        this.#operation = 'kill';
+                        Impairment.#debug(`invalid operation: ${this.operation}, closing`);
+                        this.operation = 'kill';
                     }
                     frame.close();
                 }
@@ -195,60 +257,100 @@ class Impairment {
         })
     }
 
-
-    set config(config){
+    set config(config) {
         this.impairmentConfig = config;
 
-        this.#setConfig();
-        this.#forceKeyFrame = true;
+        /*
+        let skipDuringReConfig = false;
+        if(this.operation === 'impair'){
+            Impairment.#debug("setting skip")
+            skipDuringReConfig = true;
+            this.operation = 'skip';
+        }
+
+         */
+
+
+
+        /*
+            // Wokrking config in packetLoss.html for reference
+            setCodecConfig();
+            videoEncoder.configure(videoConfig);
+            videoEncoder.flush();
+            videoDecoder.configure(videoConfig);
+            manualSendKeyFrame = true;
+            videoDecoder.flush();
+         */
+
+        /*
+        this.#loadConfig();
         this.#encoder.configure(this.codecConfig);
-        // this.#encoder.flush();
+        this.#encoder.flush().then(()=>{
+            this.#decoder.configure(this.codecConfig);
+            this.#forceKeyFrame = true;
+            this.#decoder.flush();
+        }).catch(err=>Impairment.debug(`codec config error at frame ${this.#frameCounter}`, err))
+        */
 
 
-        this.#decoder.configure(this.codecConfig);
-        // this.#decoder.flush();
+        // ToDo: need to investigate the timing here. This still causes issues
+        // idea: mark frames to ignore
+        this.#loadConfig();
+        this.#encoder.flush()
+            .then(() => {
+                this.#decoder.flush()
+                    .then(() => {
+                        this.#decoder.configure(this.codecConfig);
+                        this.#forceKeyFrame = true;
+                        this.#encoder.configure(this.codecConfig);
+                    })
+            });
 
-        this.#forceKeyFrame = false;
+        Impairment.#debug(`New configuration. Operation state: ${this.operation}. Config: `, config)
 
         // ToDo: fix / catch errors here - DOMException: Failed to execute 'decode' on 'VideoDecoder': A key frame is required after configure() or flush().
 
         /*
-        this.#sleep(1000).then(()=>{
-            this.#forceKeyFrame = false;
-        });
+        if(skipDuringReConfig){
+            this.#sleep(1000).then(()=>{
+                this.operation = 'impair';
+                Impairment.#debug("setting impair")
+
+            });
+        }
          */
 
     }
 
     start() {
-        this.#operation = "impair";
-        Impairment.#debug(`processing ${this.kind} ${this.id}`);
+        this.operation = "impair";
+        Impairment.#debug(`start: processing ${this.kind} ${this.id}`);
     }
 
     pause() {
-        this.#operation = "passthrough";
-        Impairment.#debug(`removing impairment on ${this.kind} ${this.id}`);
+        this.operation = "passthrough";
+        Impairment.#debug(`passthrough: removing impairment on ${this.kind} ${this.id}`);
     }
 
-    stop() {
-        this.#operation = "kill";
-        Impairment.#debug(`stopping ${this.kind} ${this.id}`);
+    async stop() {
+        this.operation = "kill";
+        await this.#sleep(100); // give some time to finalize the last frames
+        Impairment.#debug(`kill: stopped ${this.kind} ${this.id}`);
     }
 }
 
-
 const appEnabled = true;
 const vchStreams = [];
-const vchTransforms = [];
+const vchImpairments = [];
 // ToDo: remove these for prod
 window.vchStreams = vchStreams;
-window.vchTransforms = vchTransforms;
+window.vchTransforms = vchImpairments;
+
+let sliderState = "uninitialized";
 
 function debug(...messages) {
     console.debug(`vch 💉 `, ...messages);
 }
-
-// let workerBlob;
 
 function sendMessage(to = 'popup', message, data = {}) {
     debug(`dispatching "${message}" from inject to ${to} with data:`, data)
@@ -271,55 +373,61 @@ function sendMessage(to = 'popup', message, data = {}) {
 document.addEventListener('vch', async e => {
     //const {from, to, message, data} = e.detail;
     //debug(`message "${message}" from "${from}"`, e.detail);
-
-
-    const message = e.detail;
-    debug(e.detail);
+    debug('vch event listener', e.detail);
 
     // Edge catching its own events
-    /*
-    if (from !== 'popup') {
+    if (e.detail?.from === 'inject') {
         return
     }
-     */
-    // ToDp: message handler here
+    const message = e.detail;
 
+    // ToDo: flip this to do forEach first, then handle each message based on impairment.operation
+
+    if (!['pause', 'moderate', 'severe'].includes(message)) {
+        debug(`unhandled vch message:`, message);
+        return
+    }
+    sliderState = message;
+
+    vchImpairments.forEach(impairment => {
+        if (message === 'moderate') {
+            impairment.config = Impairment.moderateImpairmentConfig;
+            if (impairment.operation === 'passthrough') {
+                debug(`moderate impairment from ${impairment.operation} to "start"`);
+                impairment.start();
+            } else {
+                debug(`moderate impairment set on stream `);
+            }
+        } else if (message === 'severe') {
+            impairment.config = Impairment.severeImpairmentConfig;
+            if (impairment.operation === 'passthrough') {
+                debug(`severe impairment from ${impairment.operation} to "start"`);
+                impairment.start();
+            } else {
+                debug(`moderate impairment set on stream`);
+            }
+        } else if (message === 'pause') {
+            impairment.pause();
+            debug(`impairment paused on stream`);
+        }
+    });
+
+    /*
     if (message === 'start') {
-        vchTransforms.forEach(transform => transform.start());
-        debug(`impairment started on ${vchTransforms.length} stream(s)`);
+        vchImpairments.forEach(impairment => {
+            impairment.start()
+        });
+        debug(`impairment started on ${vchImpairments.length} stream(s)`);
     } else if(message === 'severe'){
         // ToDo:
-        const impairmentConfig = {
-            audio: {
-                loss: 0.40,
-                payloadSize: 600,
-                delayMs: 600,
-                // codec config
-                bitrate: 6_000
-            },
-            video: {
-                loss: 0.05,
-                payloadSize:  90,
-                keyFrameInterval: 15,
-                delayMs: 500,
-                // codec config
-                widthFactor: 4,
-                heightFactor: 4,
-                bitrate: 300_000,
-                framerateFactor: 4
-            }
-        }
-        vchTransforms.forEach(transform => transform.config = impairmentConfig);
-        debug(`impairment set to severe on ${vchTransforms.length} stream(s)`);
-
+        vchImpairments.forEach(impairment => impairment.config = severeImpairmentConfig);
+        debug(`impairment set to severe on ${vchImpairments.length} stream(s)`);
     }
     else if (message === 'stop') {
-        vchTransforms.forEach(transform => transform.pause());
-        debug(`impairment stopped on ${vchTransforms.length} stream(s)`);
+        vchImpairments.forEach(transform => transform.pause());
+        debug(`impairment stopped on ${vchImpairments.length} stream(s)`);
     }
-    else{
-        // debug(`unhandled incoming message: ${message}`);
-    }
+    */
 });
 
 
@@ -348,32 +456,29 @@ if (!window.videoCallHelper) {
             const processor = new MediaStreamTrackProcessor(track);
             const reader = processor.readable;
 
-            // ToDo: invoke the transform stream without worker here
             debug("settings before, ", settings);
 
-            const impairmentConfig = {
-                audio: {
-                    loss: 0.20,
-                    payloadSize: 400,
-                    delayMs: 500,
-                    // codec config
-                    bitrate: 12_000
-                },
-                video: {
-                    loss: 0.0025,
-                    payloadSize:  90,
-                    keyFrameInterval: 30,
-                    delayMs: 250,
-                    // codec config
-                    widthFactor: 2,
-                    heightFactor: 2,
-                    bitrate: 750_000,
-                    framerateFactor: 2
-                }
+            let impairmentConfig;
+            if (sliderState === 'severe')
+                impairmentConfig = Impairment.severeImpairmentConfig;
+            else
+                impairmentConfig = Impairment.moderateImpairmentConfig;
+            const impairment = new Impairment(kind, id, settings, impairmentConfig);
+
+            if (sliderState === 'moderate' || sliderState === 'severe')
+                impairment.start();
+
+            vchImpairments.push(impairment);
+
+            // remove stream when they are ended
+            track.onended = async () => {
+                const idx = vchStreams.findIndex(impairment => impairment.id === id);
+                await vchStreams[idx].stop();
+                if (idx > -1)
+                    vchStreams.splice(idx, 1);
+                debug(`track ${id} ended and impairment removed.`);
             }
 
-            const impairment = new Impairment(kind, id, settings, impairmentConfig);
-            vchTransforms.push(impairment);
 
             newStream.addTrack(generator);
             debug(`new ${kind} track: ${id}`, settings);

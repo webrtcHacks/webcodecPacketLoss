@@ -1,8 +1,4 @@
-const statusSpan = document.querySelector('span#gumStatus');
-const btnStart = document.querySelector('button#start');
-const btnSevere= document.querySelector('button#severe');
-const btnStop = document.querySelector('button#stop');
-
+const statusSpan = document.querySelector('span#status');
 const inputRange = document.querySelector(' input[type=range]');
 
 let injectState;
@@ -16,25 +12,55 @@ function log(...messages) {
 
 let tabId, tabUrl, port;
 chrome.tabs.query({active: true, currentWindow: true})
-    .then(tabs=>{
+    .then(async tabs=>{
         const tab = tabs[0];
         tabId = tab.id;
         tabUrl = tab.url;
         console.log(`popup page open for tab ${tabId} for ${tabUrl}`);
 
+        if(tab.url.includes("chrome://")){
+            log("popup disabled on chrome:// tab")
+            inputRange.disabled = true;
+            // document.querySelector(".container").classList.add("text-muted");
+            return
+        }
+
         port = chrome.tabs.connect(tabId, {name: "vch"});
+        
+        port.postMessage({'getState': true});
+
+
         // port.postMessage({popup: open});
         port.onMessage.addListener(msg=> {
             if(msg.state){
                 injectState = msg.state;
-                statusSpan.innerText = injectState;
                 console.log(`set injectState to: ${injectState}`);
-                if(injectState === 'ready'){
-                    btnStart.disabled = false;
+                if(injectState === 'inactive'){
+                    statusSpan.innerText = "Inactive - open a video calling tab";
+
+                }
+                else if(injectState === 'loaded'){
+                    statusSpan.innerText = "Waiting for media stream(s)";
+                }
+                else if(injectState === 'ready'){
+                    statusSpan.innerText = "Stream acquired - start an impairment below";
+                }
+            }
+            if(msg.command){
+                if(msg.command === 'pause')
+                    inputRange.value = 3;
+                else if(msg.command === 'moderate') {
+                    inputRange.value = 2;
+                }
+                else if(msg.command === 'severe'){
+                    inputRange.value = 1;
+                }
+                else {
+                    log(`unhandled command: ${msg.command}`)
                 }
             }
             else
-                console.log(`unhandled incoming message from context: `, msg);
+                log(`unhandled incoming message from context: `, msg);
 
         });
     });
@@ -72,10 +98,10 @@ inputRange.onchange = (e)=>{
     //console.log(e.target.value);
     switch(Number(e.target.value)){
         case 3:
-            command = 'stop';
+            command = 'pause';
             break;
         case 2:
-            command = 'start';
+            command = 'moderate';
             break;
         case 1:
             command = 'severe';

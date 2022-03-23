@@ -2,7 +2,8 @@ function debug(...messages) {
     console.debug(`vch 🕵️‍ `, ...messages);
 }
 
-let state = "uninitialized";
+let injectState = "uninitialized";
+let sliderState = "unknown"
 let popupOpen;
 
 // ToDo: testing - doesn't work
@@ -40,23 +41,26 @@ debug("inject injected");
 let popupPort;
 
 chrome.runtime.onConnect.addListener((port)=> {
+
     if(port.name !== "vch")
         return;
     popupPort = port;
     popupOpen = true;
 
+
     port.onMessage.addListener((msg)=> {
         // debug(`incoming message from popup:`, msg);
 
-        if(msg.command)
-            sendToInject(msg.command)
         // message handler
-        /*
-        if(msg.command === 'start' || msg.command === 'stop'){
-            sendToInject(msg.command);
+        if(msg.getState){
+            debug(`new runtime connection. state ${injectState}, command ${sliderState}. Port: `, port);
+            port.postMessage({state: injectState, command: sliderState});
+        }
+        else if(msg.command){
+            sliderState = msg.command
+            sendToInject(sliderState)
         }
 
-         */
     });
 
     port.onDisconnect.addListener((msg)=>{
@@ -64,8 +68,6 @@ chrome.runtime.onConnect.addListener((port)=> {
         debug("popup disconnected", msg);
         popupOpen = false;
     })
-
-    port.postMessage({state});
 
 });
 
@@ -94,13 +96,13 @@ document.addEventListener('vch', async e => {
         return
     }
 
-    // ToDo: message handlers
+    // ToDo: other message handlers?
 
     if(message === 'state'){
-        state = data.state;
-        debug(`state from inject: ${state}`);
+        injectState = data.state;
+        debug(`state from inject: ${injectState}`);
         if(popupOpen)
-            popupPort.postMessage({state});
+            popupPort.postMessage({injectState});
     }
 
 });
