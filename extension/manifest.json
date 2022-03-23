@@ -2,8 +2,11 @@
   "name": "Bad Connection Simulator",
   "action": {
     "default_icon": {
+      "16": "/assets/icon-16.png",
+      "48": "/assets/icon-48.png",
+      "256": "/assets/icon-256.png"
     },
-    "default_title": "Click Me",
+    "default_title": "Bad Connection Generator",
     "default_popup": "pages/popup.html"
   },
   "manifest_version": 3,
@@ -26,7 +29,7 @@
       ],
       "exclude_matches": [],
       "all_frames": false,
-      "match_about_blank": true,
+      "match_about_blank": false,
       "run_at": "document_start",
       "js": [
         "scripts/content.js"
