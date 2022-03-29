@@ -23,6 +23,7 @@ class Impairment {
     codecConfig;
     impairmentConfig;
     id;
+    track;
     trackSettings;
 
     // Default configs
@@ -46,15 +47,15 @@ class Impairment {
     loss = 0.005;
     payloadSize = 90;
     keyFrameInterval = 100;
-    delayMs = 500;
+    delayMs = 200;
 
     static moderateImpairmentConfig = {
         audio: {
-            loss: 0.20,
+            loss: 0.25,
             payloadSize: 400,
             delayMs: 500,
             // codec config
-            bitrate: 12_000
+            bitrate: 10_000
         },
         video: {
             loss: 0.0025,
@@ -71,9 +72,9 @@ class Impairment {
 
     static severeImpairmentConfig = {
         audio: {
-            loss: 0.40,
-            payloadSize: 600,
-            delayMs: 600,
+            loss: 0.50,
+            payloadSize: 400,
+            delayMs: 700,
             // codec config
             bitrate: 6_000
         },
@@ -92,11 +93,12 @@ class Impairment {
 
 
     // ToDo: apply the impairment to the track settings
-    constructor(kind, id, trackSettings, impairmentConfig = Impairment.moderateImpairmentConfig) {
-
-        this.kind = kind;
-        this.id = id;           // for debugging
-        this.trackSettings = trackSettings;
+    constructor(track, impairmentConfig = Impairment.moderateImpairmentConfig) {
+        
+        this.track = track;
+        this.kind = track.kind;
+        this.id = track.id;
+        this.trackSettings =  track.getSettings();// trackSettings;
         this.impairmentConfig = impairmentConfig;
 
         this.#loadConfig();
@@ -117,7 +119,8 @@ class Impairment {
         let chunkWithLoss = new Uint8Array(chunk.byteLength);
         chunk.copyTo(chunkWithLoss);
 
-        for (let n = 16; n <= chunkWithLoss.byteLength; n += this.payloadSize) {
+        // getStats analysis showed the headers are ~30 bytes
+        for (let n = this.kind === 'audio' ? 0 : 16; n <= chunkWithLoss.byteLength; n += this.payloadSize) {
             if (Math.random() <= this.loss)
                 chunkWithLoss.fill(0, n, n + this.payloadSize);
         }
@@ -135,10 +138,16 @@ class Impairment {
 
     // WebCodecs setup
     #setupCodec() {
-        const handleDecodedFrame = async frame => {
-            if (this.operation !== 'kill')
-                await this.#controller.enqueue(frame);
-            frame.close();
+        const handleDecodedFrame = frame => {
+            if (this.operation === 'kill') {
+                frame.close();
+            } else {
+                try {
+                    this.#controller.enqueue(frame)
+                } catch (err) {
+                    Impairment.#debug("controller enqueue error", err);
+                }
+            }
         }
 
         const handleEncodedFrame = async (chunk, metadata) => {
@@ -205,7 +214,7 @@ class Impairment {
                 codec: 'opus',
                 numberOfChannels: channelCount || 1,
                 sampleRate: sampleRate,
-                bitrate: Math.max(bitrate || 10_000, 6000)
+                bitrate: Math.max(bitrate || 10_000, 6_000)
             }
 
             // Set up the impairment
@@ -220,12 +229,13 @@ class Impairment {
         return new TransformStream({
             start: (controller) => this.#controller = controller,
             transform: async (frame) => {
-                if (this.operation === 'kill') {
+                if (this.operation === 'kill' || this.track.readyState === 'ended' ) {
                     frame.close();
                     this.#encoder.flush();
                     this.#encoder.close();
                     this.#decoder.flush();
                     this.#decoder.close();
+                    debug(`this impairment track ${this.id} closed`);
                 } else if (this.#encoder.encodeQueueSize > 2) {
                     Impairment.#debug(`${this.kind} encoder overwhelmed, dropping frame`, frame)
                     frame.close();
@@ -242,7 +252,8 @@ class Impairment {
                     } else if (this.operation === 'passthrough') {
                         await this.#controller.enqueue(frame);
                     } else if (this.operation === 'skip') {
-                        Impairment.#debug("skipping frame");
+                        // ToDo: skip in the case of track.readyState === 'live' and track.enabled = false indicating muted status?
+                        // Impairment.#debug("skipping frame");
                         frame.close();
                     } else {
                         Impairment.#debug(`invalid operation: ${this.operation}, closing`);
@@ -271,7 +282,6 @@ class Impairment {
          */
 
 
-
         /*
             // Wokrking config in packetLoss.html for reference
             setCodecConfig();
@@ -282,29 +292,37 @@ class Impairment {
             videoDecoder.flush();
          */
 
-        /*
-        this.#loadConfig();
-        this.#encoder.configure(this.codecConfig);
-        this.#encoder.flush().then(()=>{
+
+        this.#encoder.flush().then(() => {
+            this.#loadConfig();
+            this.#encoder.configure(this.codecConfig);
             this.#decoder.configure(this.codecConfig);
             this.#forceKeyFrame = true;
             this.#decoder.flush();
-        }).catch(err=>Impairment.debug(`codec config error at frame ${this.#frameCounter}`, err))
-        */
+        }).catch(err => Impairment.#debug(`codec config error at frame ${this.#frameCounter}`, err))
 
 
         // ToDo: need to investigate the timing here. This still causes issues
         // idea: mark frames to ignore
-        this.#loadConfig();
+        // The below didn't work either
+        /*
         this.#encoder.flush()
             .then(() => {
-                this.#decoder.flush()
-                    .then(() => {
-                        this.#decoder.configure(this.codecConfig);
-                        this.#forceKeyFrame = true;
-                        this.#encoder.configure(this.codecConfig);
-                    })
+                Impairment.#debug(`waiting ${this.delayMs}ms for delay queue to clear`);
+                setTimeout(()=>{
+                    Impairment.#debug(" delay queue cleared")
+                    this.#decoder.flush()
+                        .then(() => {
+                            this.#loadConfig();
+                            this.#forceKeyFrame = true;
+                            this.#decoder.configure(this.codecConfig);
+                            this.#forceKeyFrame = true;
+                            this.#encoder.configure(this.codecConfig);
+                        })
+                }, this.delayMs)
             });
+
+         */
 
         Impairment.#debug(`New configuration. Operation state: ${this.operation}. Config: `, config)
 
@@ -390,6 +408,13 @@ document.addEventListener('vch', async e => {
     sliderState = message;
 
     vchImpairments.forEach(impairment => {
+        // skip inactive impairments
+        if(impairment.track.readyState === 'ended'){
+            impairment.operation = 'kill';
+            debug(`track ${this.id} no longer active`);
+            return;
+        }
+
         if (message === 'moderate') {
             impairment.config = Impairment.moderateImpairmentConfig;
             if (impairment.operation === 'passthrough') {
@@ -412,22 +437,6 @@ document.addEventListener('vch', async e => {
         }
     });
 
-    /*
-    if (message === 'start') {
-        vchImpairments.forEach(impairment => {
-            impairment.start()
-        });
-        debug(`impairment started on ${vchImpairments.length} stream(s)`);
-    } else if(message === 'severe'){
-        // ToDo:
-        vchImpairments.forEach(impairment => impairment.config = severeImpairmentConfig);
-        debug(`impairment set to severe on ${vchImpairments.length} stream(s)`);
-    }
-    else if (message === 'stop') {
-        vchImpairments.forEach(transform => transform.pause());
-        debug(`impairment stopped on ${vchImpairments.length} stream(s)`);
-    }
-    */
 });
 
 
@@ -447,23 +456,23 @@ if (!window.videoCallHelper) {
 
         origStream.getTracks().forEach(track => {
 
-            const {kind, id} = track;
-            const settings = track.getSettings();
+            //const {kind, id} = track;
+            // const settings = track.getSettings();
 
-            const generator = new MediaStreamTrackGenerator({kind});
+            const generator = new MediaStreamTrackGenerator({kind: track.kind});
             const writer = generator.writable;
 
             const processor = new MediaStreamTrackProcessor(track);
             const reader = processor.readable;
 
-            debug("settings before, ", settings);
+            // debug("settings before, ", settings);
 
             let impairmentConfig;
             if (sliderState === 'severe')
                 impairmentConfig = Impairment.severeImpairmentConfig;
             else
                 impairmentConfig = Impairment.moderateImpairmentConfig;
-            const impairment = new Impairment(kind, id, settings, impairmentConfig);
+            const impairment = new Impairment(track, impairmentConfig);
 
             if (sliderState === 'moderate' || sliderState === 'severe')
                 impairment.start();
@@ -471,22 +480,67 @@ if (!window.videoCallHelper) {
             vchImpairments.push(impairment);
 
             // remove stream when they are ended
+            // ToDo: this didn't work on Meet
+            /*
             track.onended = async () => {
                 const idx = vchStreams.findIndex(impairment => impairment.id === id);
                 await vchStreams[idx].stop();
                 if (idx > -1)
                     vchStreams.splice(idx, 1);
-                debug(`track ${id} ended and impairment removed.`);
+                debug(`stream ${id} ended and impairment removed.`);
             }
+             */
 
 
             newStream.addTrack(generator);
-            debug(`new ${kind} track: ${id}`, settings);
+            debug(`new ${track.kind} track: ${track.id}`);
 
             reader
                 .pipeThrough(impairment.transformStream)
                 .pipeTo(writer)
-                .catch(err => debug("Insertable stream error:", err));
+                .catch(async err => {
+                    if(generator.readyState === 'ended'){
+                        await reader.cancel("track ended");
+                        debug(`track ${generator.id} ended`);
+
+                        const impairmentIdx = vchImpairments.findIndex(imp=>imp.id===track.id);
+                        if( impairmentIdx > -1)
+                            vchImpairments.splice(impairmentIdx, 1);
+                        else
+                            debug(`ERROR: unable to remove impairment on track ${track.id} on stream ${newStream.id}`);
+
+                        return
+                    }
+                    /*
+                    if(!newStream.active){
+                        const idx = vchStreams.findIndex(impairment => impairment.id === id);
+                        if (idx > -1){
+                            // Remove from the impairments array
+                            const trackIds = vchStreams[idx].getTracks().map(track=>track.id);
+                            trackIds.forEach(id=>{
+                                const impairmentIdx = vchImpairments.findIndex(imp=>imp.id===id);
+                                if( impairmentIdx > -1)
+                                    vchImpairments.splice(impairmentIdx, 1);
+                                else
+                                    debug(`ERROR: unable to remove impairment on track ${id} on stream ${newStream[idx].id}`);
+                            })
+
+                            // remove from the stream array
+                            vchStreams.splice(idx, 1);
+                            debug(`track ${id} ended and impairment removed.`);
+                        }
+                    }
+                    else {
+
+                     */
+                        debug(`Insertable stream error on stream ${newStream.id}`, err);
+                        // ToDo: whereby device change debugging; need to handle when a stream is closed
+                        // Extra debugging
+                        debug(newStream);
+                        newStream.getTracks().forEach(track => debug(`track ${track.id} status is ${track.readyState}`, track));
+                    //}
+                });
+
         });
 
         // debug(`original stream: ${origStream.id}:`, origStream.getTracks());
@@ -497,11 +551,12 @@ if (!window.videoCallHelper) {
          * These were not available right away. Adding the delay fixes it
          * ToDo: experiment with delay timing
          */
-        await new Promise((resolve) => setTimeout(resolve, 200))
+        await new Promise((resolve) => setTimeout(resolve, 200));
         if (!streamError) {
             sendMessage('popup', 'state', {state: 'ready'})
             return newStream;
         } else {
+            // ToDo: error handler
             return origStream;
         }
 
