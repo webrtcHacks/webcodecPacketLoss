@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Popup</title>
     <link rel="stylesheet" href="../node_modules/bootstrap/dist/css/bootstrap.min.css">
-    <script src="../node_modules/bootstrap/dist/js/bootstrap.bundle.js"></script>
+    <script src="../node_modules/bootstrap/dist/js/bootstrap.bundle.min.js"></script>
     <style>
         .container {
             width: 400px
@@ -35,22 +35,31 @@
             font-size: x-small;
         }
 
-
     </style>
 </head>
 <body>
 <div class="container pt-4">
     <div class="row">
-        <h4 class=""><img src="../assets/icon-72.png" height="32" alt="bar crossing out a video call">
-            <span class="align-bottom">&nbsp; Bad Connection Simulator</span>
+        <div class="card" id="more_info" hidden>
+            <div class="card-body">
+                <h5 class="card-title">How to use the Bad Connection Simulator</h5>
+                <ol class="fw-light">
+                    <li>Join your video call website.</li>
+                    <li>During your call, select the moderate or severe below to simulate a bad network connection.</li>
+                    <li>Switch back to <em>None</em> at anytime to turn it off.</li>
+                </ol>
+            </div>
+        </div>
+        <h4 class=""><img src="../assets/icon-72.png" height="32" alt="4 signal indicators in a grid with one low">
+            <span class="align-bottom"> Bad Connection Simulator</span>
             <span class="float-end align-top">
-                    <a href="#">
+                    <button id="info" class="btn btn-link" data-bs-toggle="tooltip" title="How to use information">
                         <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" fill="currentColor"
                              class="bi bi-info-circle" viewBox="0 0 16 16">
                             <path d="M8 15A7 7 0 1 1 8 1a7 7 0 0 1 0 14zm0 1A8 8 0 1 0 8 0a8 8 0 0 0 0 16z"/>
                             <path d="m8.93 6.588-2.29.287-.082.38.45.083c.294.07.352.176.288.469l-.738 3.468c-.194.897.105 1.319.808 1.319.545 0 1.178-.252 1.465-.598l.088-.416c-.2.176-.492.246-.686.246-.275 0-.375-.193-.304-.533L8.93 6.588zM9 4.5a1 1 0 1 1-2 0 1 1 0 0 1 2 0z"/>
                         </svg>
-                    </a>
+                    </button>
             </span>
         </h4>
     </div>
@@ -65,7 +74,8 @@
                     <td class="text-end"><span id="active">None</span></td>
                     <td rowspan=3 style="width:50px">
                         <div class="range-slider">
-                            <input type="range" id="slider" min="1" max="3" value="3" step="1" list="tick_marks" class="align-middle">
+                            <input type="range" id="slider" min="1" max="3" value="3" step="1" list="tick_marks"
+                                   class="align-middle">
                             <datalist id="tick_marks">
                                 <option value="none"></option>
                                 <option value="moderate"></option>
@@ -74,7 +84,8 @@
                         </div>
                     </td>
                     <td><span id="active_desc"
-                              class="small fw-light">Normal connection - select an option to start</span></td>
+                              class="small fw-light">Normal connection - select an option below to start
+                    </span></td>
                 </tr>
                 <tr>
                     <td class="text-end"><span>Moderate</span></td>
@@ -91,7 +102,7 @@
         <p class="footer text-center">
             ©2022 Cogint Labs, LLC
             •
-            <a href="#">Extension Options</a>
+            <a href="#" id="options">Extension Options</a>
             •
             <a href="#">More information</a>
         </p>

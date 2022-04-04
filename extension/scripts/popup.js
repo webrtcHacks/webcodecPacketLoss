@@ -1,5 +1,7 @@
 const statusSpan = document.querySelector('span#status');
 const inputRange = document.querySelector(' input[type=range]');
+const moreInfoDiv = document.querySelector('div#more_info');
+const infoBtn = document.querySelector('button#info');
 
 let injectState;
 
@@ -65,34 +67,6 @@ chrome.tabs.query({active: true, currentWindow: true})
         });
     });
 
-/*
-btnStart.onclick = async () => {
-    port.postMessage({command: 'start'});
-    console.log('start click');
-    btnStart.disabled = true;
-    btnSevere.disabled = false;
-    btnStop.disabled = false;
-}
-
-btnSevere.onclick = async () => {
-    port.postMessage({command: 'severe'});
-    console.log('severe click');
-    btnStart.disabled = true;
-    btnSevere.disabled = true;
-    btnStop.disabled = false;
-}
-
-btnStop.onclick = async () => {
-    port.postMessage({command: 'stop'});
-    console.log('stop click');
-    btnStart.disabled = false;
-    btnSevere.disabled = true;
-    btnStop.disabled = true;
-
-}
- */
-
-//console.log(inputRange);
 inputRange.onchange = (e) => {
     let command;
     //console.log(e.target.value);
@@ -114,3 +88,15 @@ inputRange.onchange = (e) => {
 
 
 }
+
+infoBtn.onclick = ()=> moreInfoDiv.hidden = !moreInfoDiv.hidden;
+
+// Todo: open an options page or the extension page
+// can't open a chrome://extension page from the pop-up directly; could send ot the webstore page
+// https://stackoverflow.com/questions/22761819/how-to-open-chrome-extension-page-programmatically
+/*
+document.querySelector('button#options').onclick = () => {
+    window.open("chrome://extensions/?id=bhanoknolaefhhiogpmoghangjkmaicn")
+}
+ */
+

@@ -342,7 +342,7 @@
             // skip inactive impairments
             if (impairment.track.readyState === 'ended') {
                 impairment.operation = 'kill';
-                debug(`track ${this.id} no longer active`);
+                debug(`track ${this?.id} no longer active`);
                 return;
             }
 
