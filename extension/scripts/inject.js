@@ -9,7 +9,7 @@
      * 'passthrough' just pushes the frame through without modification
      * The start function changes the operation to 'impair'
      * The config setter applies an impairment configuration
-     * Static clesses are included for a moderation and severe impairment
+     * Static classes are included for a moderation and severe impairment
      */
     class Impairment {
         #controller;
@@ -88,7 +88,7 @@
         }
 
         static #debug(...messages) {
-            console.debug(`vch 💉😈 `, ...messages);
+            console.debug(`bcs 💉😈 `, ...messages);
         }
 
         async #sleep(ms) {
@@ -103,6 +103,7 @@
             // getStats analysis showed the headers are ~30 bytes on video;
             // could do the math based on details here: https://datatracker.ietf.org/doc/html/rfc6386#section-9.1
             // errors return if the video header isn't included
+            // found 16 worked best with experimentation
             // audio works fine without any header - including it includes some audio information, so ruins the effect
             for (let n = this.kind === 'audio' ? 0 : 16; n <= chunkWithLoss.byteLength; n += this.payloadSize) {
                 if (Math.random() <= this.loss)
@@ -140,8 +141,6 @@
                 }
                 const modifiedChunk = this.#addPacketLoss(chunk, this.kind);
                 await this.#sleep(this.delayMs);
-
-                // this.#decoder.decode(modifiedChunk)
 
                 // ToDo: figure out how to make sure this has a keyframe after configure
                 // hypothesis: packets caught in sleep function
@@ -290,16 +289,15 @@
     }
 
     const appEnabled = true;
-    const vchStreams = [];
-    const vchImpairments = [];
-// ToDo: remove these for prod
-// window.vchStreams = vchStreams;
-    window.vchTransforms = vchImpairments;
+    const bcsImpairments = [];
+    const PORT_NAME = "bad_connection_simulator";
+    // Use for debugging
+    // window.bcsTransforms = bcsImpairments;
 
     let sliderState = "uninitialized";
 
     function debug(...messages) {
-        console.debug(`vch 💉 `, ...messages);
+        console.debug(`bcs 💉 `, ...messages);
     }
 
     function sendMessage(to = 'popup', message, data = {}) {
@@ -315,15 +313,15 @@
             data: data
         };
 
-        const toContentEvent = new CustomEvent('vch', {detail: messageToSend});
+        const toContentEvent = new CustomEvent(PORT_NAME, {detail: messageToSend});
         document.dispatchEvent(toContentEvent);
     }
 
 // Handle incoming messages
-    document.addEventListener('vch', async e => {
+    document.addEventListener(PORT_NAME, async e => {
         //const {from, to, message, data} = e.detail;
         //debug(`message "${message}" from "${from}"`, e.detail);
-        debug('vch event listener', e.detail);
+        debug('event listener', e.detail);
 
         // Don't react to inject's own events
         if (e.detail?.from === 'inject') {
@@ -333,12 +331,12 @@
 
         // Message handler
         if (!['pause', 'moderate', 'severe'].includes(message)) {
-            debug(`unhandled vch message:`, message);
+            debug(`unhandled message:`, message);
             return
         }
         sliderState = message;
 
-        vchImpairments.forEach(impairment => {
+        bcsImpairments.forEach(impairment => {
             // skip inactive impairments
             if (impairment.track.readyState === 'ended') {
                 impairment.operation = 'kill';
@@ -402,18 +400,9 @@
                 if (sliderState === 'moderate' || sliderState === 'severe')
                     impairment.start();
 
-                vchImpairments.push(impairment);
+                bcsImpairments.push(impairment);
 
-                // ToDo: these track ended events aren't working - need to handle stopped tracks better
-                /*
-                track.onended = async () => {
-                    const idx = vchStreams.findIndex(impairment => impairment.id === id);
-                    await vchStreams[idx].stop();
-                    if (idx > -1)
-                        vchStreams.splice(idx, 1);
-                    debug(`stream ${id} ended and impairment removed.`);
-                }
-                */
+                // ToDo: track ended events aren't working - need to handle stopped tracks better
 
                 track.addEventListener('ended', () => {
                     debug(`'ended' event: ${track.kind} track ${track.id}`)
@@ -431,9 +420,9 @@
                             await reader.cancel("track ended");
                             debug(`${generator.kind} track ${generator.id} ended`);
 
-                            const impairmentIdx = vchImpairments.findIndex(imp => imp.id === track.id);
+                            const impairmentIdx = bcsImpairments.findIndex(imp => imp.id === track.id);
                             if (impairmentIdx > -1)
-                                vchImpairments.splice(impairmentIdx, 1);
+                                bcsImpairments.splice(impairmentIdx, 1);
                             else
                                 debug(`ERROR: unable to remove impairment on track ${track.id} on stream ${newStream.id}`);
                         } else {
@@ -448,11 +437,10 @@
 
             // debug(`original stream: ${origStream.id}:`, origStream.getTracks());
             // debug(`replacement stream: ${newStream.id}:`, newStream.getTracks());
-            vchStreams.push(newStream);
+            // bcsStreams.push(newStream);
 
             /* Note: Jitsi uses the track.getSettings for its virtual backgrounds - frameRate, height, etc.
              * These were not available right away. Adding the delay fixes it
-             * ToDo: experiment with delay timing
              */
             await new Promise((resolve) => setTimeout(resolve, 100));
             if (!streamError) {

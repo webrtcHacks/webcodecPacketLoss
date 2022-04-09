@@ -4,6 +4,7 @@ const moreInfoDiv = document.querySelector('div#more_info');
 const infoBtn = document.querySelector('button#info');
 
 let injectState;
+const PORT_NAME = "bad_connection_simulator";
 
 function log(...messages) {
     if (messages.length > 1 || typeof messages[0] === 'object')
@@ -23,11 +24,10 @@ chrome.tabs.query({active: true, currentWindow: true})
         if (tab.url.includes("chrome://")) {
             log("popup disabled on chrome:// tab")
             inputRange.disabled = true;
-            // document.querySelector(".container").classList.add("text-muted");
             return
         }
 
-        port = chrome.tabs.connect(tabId, {name: "vch"});
+        port = chrome.tabs.connect(tabId, {name: PORT_NAME});
 
         port.postMessage({'getState': true});
 
@@ -69,7 +69,6 @@ chrome.tabs.query({active: true, currentWindow: true})
 
 inputRange.onchange = (e) => {
     let command;
-    //console.log(e.target.value);
     switch (Number(e.target.value)) {
         case 3:
             command = 'pause';

@@ -6,7 +6,7 @@
       "48": "/assets/icon-48.png",
       "256": "/assets/icon-256.png"
     },
-    "default_title": "Bad Connection Generator",
+    "default_title": "Bad Connection Simulator",
     "default_popup": "pages/popup.html"
   },
   "manifest_version": 3,
@@ -17,10 +17,6 @@
     "tabs",
     "scripting"
   ],
-  "background": {
-    "service_worker": "scripts/background.js",
-    "type": "module"
-  },
   "content_scripts": [
     {
       "matches": [
@@ -36,17 +32,10 @@
       ]
     }
   ],
-  "content_security_policy": {
-    "extension_pages": "script-src 'self' ; object-src 'self'; style-src 'self' 'unsafe-inline'",
-    "isolated_world": "script-src 'self' 'unsafe-inline'"
-  },
-  "options_page": "pages/options.html",
   "web_accessible_resources": [
     {
       "resources": [
-        "scripts/inject.js",
-        "scripts/worker.js",
-        "styles/*.css"
+        "scripts/inject.js"
       ],
       "matches": [
         "http://*/*",

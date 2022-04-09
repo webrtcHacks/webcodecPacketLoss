@@ -1,25 +1,12 @@
 function debug(...messages) {
-    console.debug(`vch 🕵️‍ `, ...messages);
+    // console.debug(`bcs 🕵️‍ `, ...messages);
 }
 
 let injectState = "uninitialized";
 let sliderState = "unknown"
 let popupOpen;
 
-// ToDo: testing - doesn't work
-// const worker = new Worker("chrome-extension://bhanoknolaefhhiogpmoghangjkmaicn/scripts/worker.js")
-
 debug(`content.js loaded on ${window.location.href}`);
-
-
-// Add the worker script as a script tag
-
-/*
-const workerScript = document.createElement("script");
-workerScript.id = "vch_packet_loss_worker";
-workerScript.src = chrome.runtime.getURL('/scripts/worker.js');
-(document.head || document.documentElement).appendChild(workerScript);
- */
 
 // inject inject script
 function addScript(path) {
@@ -29,27 +16,24 @@ function addScript(path) {
     (document.head || document.documentElement).appendChild(script);
 }
 
-// addScript('/scripts/impairment.js')
 addScript('/scripts/inject.js');
 debug("inject injected");
-
 
 /*
  * Communicate with the popup
  */
 
 let popupPort;
+const PORT_NAME = "bad_connection_simulator";
 
 chrome.runtime.onConnect.addListener((port)=> {
 
-    if(port.name !== "vch")
+    if(port.name !== PORT_NAME)
         return;
     popupPort = port;
     popupOpen = true;
 
-
     port.onMessage.addListener((msg)=> {
-        // debug(`incoming message from popup:`, msg);
 
         // message handler
         if(msg.getState){
@@ -60,7 +44,6 @@ chrome.runtime.onConnect.addListener((port)=> {
             sliderState = msg.command
             sendToInject(sliderState)
         }
-
     });
 
     port.onDisconnect.addListener((msg)=>{
@@ -77,15 +60,15 @@ chrome.runtime.onConnect.addListener((port)=> {
 
 const sendToInject = message => {
     debug("sending this to inject.js: ", message);
-    const toInjectEvent = new CustomEvent('vch', {detail: message});
+    const toInjectEvent = new CustomEvent(PORT_NAME, {detail: message});
     document.dispatchEvent(toInjectEvent);
 };
 
 // Messages from inject
-document.addEventListener('vch', async e => {
+document.addEventListener(PORT_NAME, async e => {
     const {to, from, message, data} = e.detail;
 
-    // ToDo: stop inject for echoing back
+    // stop inject for echoing back
     if (from !== 'inject')
         return;
 
@@ -96,23 +79,10 @@ document.addEventListener('vch', async e => {
         return
     }
 
-    // ToDo: other message handlers?
-
     if(message === 'state'){
         injectState = data.state;
         debug(`state from inject: ${injectState}`);
         if(popupOpen)
             popupPort.postMessage({injectState});
     }
-
 });
-
-/*
-// using an onbeforeunload here was making a "are you sure you want to close" message
-onunload = async () => {
-    state = "closing";
-    if(popupOpen)
-        await popupPort.postMessage({state})
-            .catch(err=>debug(err));
-}
- */
