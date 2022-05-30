@@ -10,12 +10,10 @@
     "default_popup": "pages/popup.html"
   },
   "manifest_version": 3,
-  "version": "0.0.1",
+  "version": "1.0.0",
   "description": "Get out of calls by simulating a bad connection",
   "permissions": [
-    "activeTab",
-    "tabs",
-    "scripting"
+    "activeTab"
   ],
   "content_scripts": [
     {
