@@ -3,13 +3,52 @@
 <head>
     <meta charset="UTF-8">
     <title>Packetloss Simulation</title>
+    <style>
+        body {
+            /*background-color: cyan; */
+        }
+
+        p {
+            margin: 2px;
+        }
+
+        .row {
+            display: flex;
+        }
+
+        .mirror {
+            transform: scaleX(-1);
+        }
+    </style>
 </head>
 <body>
-<video id="sender" autoplay playsinline muted></video>
-<video id="modded" autoplay playsinline></video>
+<div class="row">
+    <div>
+        <h3>Source media</h3>
+        <video id="source" class="mirror" autoplay playsinline muted></video>
+        <p id="source_stats"></p>
+    </div>
+    <div>
+        <h3>Media modified by WebCodecs </h3>
+        <video id="modded" class="mirror" autoplay playsinline></video>
+        <p id="modded_stats"></p>
+    </div>
+
+</div>
+
+
+<h3>Media Capture setup</h3>
 <p>Use headphones to avoid audio feedback</p>
+
+<label for="video_devices">Choose your camera source</label>
+<select name="video_devices" id="video_devices" class="senderControl"></select>
+
+<label for="audio_devices">Choose your microphone source</label>
+<select name="audio_devices" id="audio_devices" class="senderControl"></select>
+<br>
 <button id="start">Start</button>
 <button id="stop">Stop</button>
+
 <h3>Control Encoding</h3>
 <button id="send_keyframe">Send KeyFrame</button>
 <form id="encoding_form" onsubmit="return false">
@@ -34,9 +73,10 @@
 </form>
 <h3>Simulate delay</h3>
 <label for="delay_range">Add a delay in ms (up to 5000):</label>
-<input type="range" min="0" max="5000" value="0" id="delay_range" > <!--oninput="this.nextElementSibling.value = `${this.value} ms`"-->
+<input type="range" min="0" max="5000" value="0" id="delay_range">
+<!--oninput="this.nextElementSibling.value = `${this.value} ms`"-->
 <span><output id="delay">0</output> ms</span>
-<h3>Simulate Packet Loss</h3>
+<h3>Simulate Packet Loss without retransmissions</h3>
 <p>
     video:
     <button class="video_loss" value="0">No loss</button>
@@ -57,9 +97,15 @@
 <br>
 <span id="message"></span>
 <script>
-    const senderVideo = document.querySelector('video#sender');
-    const moddedVideo = document.querySelector('video#modded');
+    const sourceMedia = document.querySelector('video#source');
+    const moddedMedia = document.querySelector('video#modded');
 
+    const sourceStats = document.querySelector('p#source_stats');
+    const moddedStats = document.querySelector('p#modded_stats');
+
+
+    const videoDeviceSelect = document.querySelector('select#video_devices');
+    const audioDeviceSelect = document.querySelector('select#audio_devices');
     const startBtn = document.querySelector('button#start');
     const messageSpan = document.querySelector('span#message');
     const endBtn = document.querySelector('button#stop');
@@ -79,6 +125,7 @@
 
     const VIDEO_WIDTH = 640;
     const VIDEO_HEIGHT = 480;
+    const FRAME_RATE = 30;
 
     const PAYLOAD_SIZE = 200; // 90
     let videoPacketLossPct = 0, audioPacketLossPct = 0;
@@ -93,7 +140,7 @@
     const audioWriter = audioGenerator.writable.getWriter();
 
     const moddedStream = new MediaStream([videoGenerator, audioGenerator]);
-    moddedVideo.srcObject = moddedStream;
+    moddedMedia.srcObject = moddedStream;
 
 
     let audioDelayTimeout, videoDelaytimeout;
@@ -106,7 +153,122 @@
     const sleep = ms => new Promise((resolve) => setTimeout(resolve, ms));
 
     // allow spacers for easier entry of large numbers
-    const cleanInput =  input => parseInt(input.replaceAll(/[,_ .]/ig, ""));
+    const cleanInput = input => parseInt(input.replaceAll(/[,_ .]/ig, ""));
+
+
+    // Change camera and mic devices
+    let videoDevices = [];
+    let audioDevices = [];
+
+    async function getDevices() {
+        let devices = await navigator.mediaDevices.enumerateDevices();
+        videoDevices = devices.filter(device => device.kind === 'videoinput');
+        audioDevices = devices.filter(device => device.kind === 'audioinput');
+
+        console.log("video devices:", videoDevices);
+        console.log("audio devices:", audioDevices);
+
+        videoDevices.forEach(device => {
+            const option = document.createElement('option');
+            option.text = device.label;
+            videoDeviceSelect.appendChild(option);
+        });
+
+        audioDevices.forEach(device => {
+            const option = document.createElement('option');
+            option.text = device.label;
+            audioDeviceSelect.appendChild(option);
+        });
+    }
+
+
+    function showStats(source, target){
+
+            let decodedFrames = 0,
+                droppedFrames = 0,
+                startTime = new Date().getTime(),
+                initialTime = new Date().getTime();
+
+            window.setInterval(()=> {
+
+                //see if webkit stats are available; exit if they aren't
+                if (!source.webkitDecodedFrameCount) {
+                    console.log("Video FPS calcs not supported");
+                }
+                //get the stats
+                else {
+                    let currentTime = new Date().getTime();
+                    let deltaTime = (currentTime - startTime) / 1000;
+                    let totalTime = (currentTime - initialTime) / 1000;
+                    startTime = currentTime;
+
+                    // Calculate decoded frames per sec.
+                    let currentDecodedFPS = (source.webkitDecodedFrameCount - decodedFrames) / deltaTime;
+                    let decodedFPSavg = source.webkitDecodedFrameCount / totalTime;
+                    decodedFrames = source.webkitDecodedFrameCount;
+
+                    // Calculate dropped frames per sec.
+                    let currentDroppedFPS = (source.webkitDroppedFrameCount - droppedFrames) / deltaTime;
+                    let droppedFPSavg = source.webkitDroppedFrameCount / totalTime;
+                    droppedFrames = source.webkitDroppedFrameCount;
+
+                    //write the results to a table
+                    target.innerHTML =
+                        "<table><tr><th>Type</th><th>Total</th><th>Avg</th><th>Current</th></tr>" +
+                        "<tr><td>Decoded</td><td>" + decodedFrames + "</td><td>" + decodedFPSavg.toFixed() + "</td><td>" + currentDecodedFPS.toFixed() + "</td></tr>" +
+                        "<tr><td>Dropped</td><td>" + droppedFrames + "</td><td>" + droppedFPSavg.toFixed() + "</td><td>" + currentDroppedFPS.toFixed() + "</td></tr>" +
+                        "<tr><td>All</td><td>" + (decodedFrames + droppedFrames) + "</td><td>" + (decodedFPSavg + droppedFPSavg).toFixed() + "</td><td>" + (currentDecodedFPS + currentDroppedFPS).toFixed() + "</td></tr></table>" +
+                        "Camera resolution: " + source.videoWidth + " x " + source.videoHeight;
+                }
+            }, 2000);
+    }
+
+    sourceMedia.onplaying = () => {
+        console.log("source playing stream:", sourceMedia.srcObject);
+        if(sourceStats.innerText === "")
+            showStats(sourceMedia, sourceStats);
+    }
+
+    moddedMedia.onplaying = () => {
+        console.log("modded media playing stream:", moddedMedia.srcObject);
+        if(moddedStats.innerText === "")
+            showStats(moddedMedia, moddedStats);
+    }
+
+    async function getMedia() {
+
+        if(sourceMedia?.srcObject?.active){
+            sourceMedia.srcObject.getTracks().forEach(track=>track.stop());
+        }
+
+        document.querySelectorAll('video').forEach(element => {
+            element.height = VIDEO_HEIGHT;
+            element.width = VIDEO_WIDTH;
+        });
+
+        let videoSource = videoDevices[videoDeviceSelect.selectedIndex || 0]?.deviceId;
+        let audioSource = audioDevices[audioDeviceSelect.selectedIndex || 0]?.deviceId;
+
+        const constraints = {
+            video:
+                {
+                    height: {ideal: VIDEO_HEIGHT}, width: {ideal: VIDEO_WIDTH}, frameRate: FRAME_RATE,
+                    deviceId: videoSource ? {exact: videoSource} : undefined
+                },
+            audio: {
+                deviceId: audioSource ? {exact: audioSource} : undefined
+            }
+        }
+
+        const stream = await navigator.mediaDevices.getUserMedia(constraints);
+        sourceMedia.srcObject = stream;
+        window.sourceStream = stream;         // for debugging
+
+        console.log(`Capture camera with device ${stream.getTracks()[0].label}`);
+    }
+
+    videoDeviceSelect.onchange = getMedia;
+    audioDeviceSelect.onchange = getMedia;
 
 
     /*
@@ -141,7 +303,7 @@
 
     let videoConfig, audioConfig;
 
-    function setCodecConfig(){
+    function setCodecConfig() {
         videoConfig = {
             codec: "vp8",
             width: VIDEO_WIDTH,
@@ -157,6 +319,7 @@
             bitrate: cleanInput(audioBitrateInput.value)
         }
     }
+
     setCodecConfig();
 
 
@@ -239,16 +402,9 @@
         startBtn.disabled = true;
         console.log("starting");
 
-        senderVideo.onplaying = () => {
-            console.log("video playing stream:", senderVideo.srcObject);
-        }
-        const stream = await navigator.mediaDevices.getUserMedia({video: true, audio: true});
-        senderVideo.srcObject = stream;
-        window.sendStream = stream;         // for debugging
-
         // Insertable Stream
-        const [videoTrack] = stream.getVideoTracks();
-        const [audioTrack] = stream.getAudioTracks();
+        const [videoTrack] = sourceMedia.srcObject.getVideoTracks();
+        const [audioTrack] = sourceMedia.srcObject.getAudioTracks();
 
         const videoTrackProcessor = new MediaStreamTrackProcessor(videoTrack);
         const audioTrackProcessor = new MediaStreamTrackProcessor(audioTrack);
@@ -317,7 +473,7 @@
     // GUI controls
     startBtn.onclick = start;
 
-    endBtn.onclick = () => senderVideo.srcObject.getTracks().forEach(track => track.stop());
+    endBtn.onclick = () => sourceMedia.srcObject.getTracks().forEach(track => track.stop());
 
     // modify encoding parameters on the fly
     encoderConfigBtn.onclick = () => {
@@ -348,7 +504,7 @@
 
     });
 
-    delayRange.oninput = (e)=>{
+    delayRange.oninput = (e) => {
         delayInput.value = e.target.value;
 
         // Audio delay doesn't ever reset when the delay is lowered
@@ -371,13 +527,21 @@
         }
         else
          */
-            delay = e.target.value;
+        delay = e.target.value;
     }
 
     sendKeyFrameBtn.onclick = () => {
         manualSendKeyFrame.disabled = true;
         manualSendKeyFrame = true;
     }
+
+    async function main() {
+        await getDevices();
+        await getMedia();
+    }
+
+    main().catch(err => console.error(err));
+
 
 </script>
 </body>
