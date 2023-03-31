@@ -2,7 +2,7 @@
 [![Bad Connection Simulator](https://img.youtube.com/vi/xFjo1z23sms/maxresdefault.jpg)](https://youtu.be/xFjo1z23sms)
 *Click to Watch the demo on YouTube*
 
-### ➡ [Available on the Chrome WebStore](#) ⬅
+### ➡ [Available on the Chrome WebStore](https://chrome.google.com/webstore/detail/bad-connection-simulator/gflankmgolakfdeiponkgmbhbhpdmjlg) ⬅
 
 # Bad Connection Simulator Browser Extension
 ### Get off of video calls by simulating a fake connection
@@ -16,7 +16,7 @@ The Bad Connection Simulator Chrome Extension simulates a bad connection with ju
 * Evades low bandwidth adaptation used by video calling apps
 
 ## How to Use 🍰
-1. [Install the extension from the Chrome WebStore](#)
+1. [Install the extension from the Chrome WebStore](https://chrome.google.com/webstore/detail/bad-connection-simulator/gflankmgolakfdeiponkgmbhbhpdmjlg)
 2. Join your video call
 3. Click the Bad Connection Simulator icon and select your impairment level
 4. Adjust as needed throughout your call
@@ -78,7 +78,7 @@ After a [getUserMedia](https://developer.mozilla.org/en-US/docs/Web/API/MediaDev
 are routed through [WebCodecs](https://www.w3.org/TR/webcodecs/) where the stream is re-encoded with simulated packet loss and latency. 
 Then the stream is passed to the video calling app where it is displayed and can be passed to a `RTCPeerConnection`.
 
-# &nbsp;&nbsp;&nbsp;&nbsp;&nbsp; ➡ [Install from the Chrome WebStore](#) ⬅
+# &nbsp;&nbsp;&nbsp;&nbsp;&nbsp; ➡ [Install from the Chrome WebStore](https://chrome.google.com/webstore/detail/bad-connection-simulator/gflankmgolakfdeiponkgmbhbhpdmjlg) ⬅
 
 ## Specific Video Calling App Guides
 
